@@ -46,7 +46,7 @@ public class ColorDetectorService
         double targetAngle = Math.Atan2(tB, tA);
 
         // Thresholds from settings (derived from tolerance slider)
-        double similarity = target.Threshold.H * 1.5;        // inner radius: fully remove
+        double similarity = target.Threshold.H * 1.35;       // inner radius: fully remove
         double smoothness = similarity * 0.8;                  // transition zone width
         double outerRadius = similarity + smoothness;          // beyond this: fully keep
 
