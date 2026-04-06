@@ -288,7 +288,7 @@ public class ColorDetectorService
             out double tL, out double tA, out double tB);
         double targetChroma = Math.Sqrt(tA * tA + tB * tB);
         double targetAngle = Math.Atan2(tB, tA);
-        double maxDist = target.Threshold.H * 1.5;
+        double maxDist = target.Threshold.H * 1.35;
 
         // Pass 1: mark target pixels
         bool[] mask = new bool[w * h];
@@ -302,18 +302,14 @@ public class ColorDetectorService
 
                 bool directMatch = chromaDist <= maxDist;
                 bool edgeMatch = false;
-                bool familyMatch = false;
-                if (pixelChroma > 15 && targetChroma > 5)
+                if (pixelChroma > 2 && targetChroma > 5)
                 {
                     double pixelAngle = Math.Atan2(pB, pA);
                     double angleDiff = Math.Abs(targetAngle - pixelAngle);
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-                    double angleDeg = angleDiff * 180.0 / Math.PI;
-                    edgeMatch = angleDeg <= maxDist * 1.0;
-                    // Color family: same hue direction with sufficient chroma
-                    familyMatch = angleDeg <= maxDist * 0.5 && pixelChroma > 20;
+                    edgeMatch = angleDiff * 180.0 / Math.PI <= maxDist * 1.3;
                 }
-                if (directMatch || edgeMatch || familyMatch)
+                if (directMatch || edgeMatch)
                     mask[y * w + x] = true;
             }
 
@@ -336,7 +332,7 @@ public class ColorDetectorService
                     int i = y * stride + x * 4;
                     RgbToLab(src[i + 2], src[i + 1], src[i], out _, out double eA, out double eB);
                     double eChroma = Math.Sqrt(eA * eA + eB * eB);
-                    if (eChroma < 1.0) continue;
+                    if (eChroma < 1.5) continue;
                     double eAngle = Math.Atan2(eB, eA);
                     double aDiff = Math.Abs(targetAngle - eAngle);
                     if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
