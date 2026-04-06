@@ -34,7 +34,8 @@ public partial class SettingsWindow : Window
         BtnChange.Content = Loc.ChangeColor;
         LblOpacity.Text = Loc.SheetOpacity;
         LblAlgorithm.Text = Loc.EraseAlgorithm;
-        LblAlgorithmDesc.Text = Loc.EraseAlgorithmDesc;
+        LblChromaKeyDesc.Text = Loc.ChromaKeyDesc;
+        LblLabMaskDesc.Text = Loc.LabMaskDesc;
         LblTolerance.Text = Loc.EraseTolerance;
         LblToleranceDesc.Text = Loc.EraseToleranceDesc;
         LblStrict.Text = Loc.Strict;

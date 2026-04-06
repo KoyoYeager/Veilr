@@ -113,10 +113,15 @@ public class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Erase algorithm ---
-    public int EraseAlgorithmIndex
+    public bool IsChromaKey
     {
-        get => _eraseAlgorithmIndex;
-        set { _eraseAlgorithmIndex = value; OnPropertyChanged(nameof(EraseAlgorithmIndex)); }
+        get => _eraseAlgorithmIndex == 0;
+        set { if (value) { _eraseAlgorithmIndex = 0; OnPropertyChanged(nameof(IsChromaKey)); OnPropertyChanged(nameof(IsLabMask)); } }
+    }
+    public bool IsLabMask
+    {
+        get => _eraseAlgorithmIndex == 1;
+        set { if (value) { _eraseAlgorithmIndex = 1; OnPropertyChanged(nameof(IsChromaKey)); OnPropertyChanged(nameof(IsLabMask)); } }
     }
 
     // --- Behavior ---

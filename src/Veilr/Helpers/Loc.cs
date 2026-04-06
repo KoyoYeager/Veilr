@@ -37,9 +37,12 @@ public static class Loc
     public static string Strict => _lang == "en" ? "Strict" : "厳密";
     public static string Flexible => _lang == "en" ? "Flexible" : "柔軟";
     public static string EraseAlgorithm => _lang == "en" ? "Erase algorithm" : "消去アルゴリズム";
-    public static string EraseAlgorithmDesc => _lang == "en"
-        ? "Chroma Key: smooth blending at edges. Lab Mask: sharp binary removal."
-        : "クロマキー: 境界が滑らか。Labマスク: くっきり消去。";
+    public static string ChromaKeyDesc => _lang == "en"
+        ? "Smooth alpha blending at edges. Best for anti-aliased text and gradual color boundaries."
+        : "境界をアルファブレンドで滑らかに処理。アンチエイリアス付きテキストや色の境界が緩やかな場合に最適。";
+    public static string LabMaskDesc => _lang == "en"
+        ? "Sharp binary removal. Best for solid color blocks, bold text, and cases where chroma key over-blends."
+        : "くっきり二値消去。ベタ塗り、太文字、クロマキーがぼやける場合に最適。";
 
     public static string EraseSettings => _lang == "en" ? "Erase mode settings" : "消去モード設定";
     public static string UpdateFrequency => _lang == "en" ? "Update rate:" : "更新頻度:";

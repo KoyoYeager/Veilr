@@ -47,13 +47,21 @@
                         </Grid>
 
                         <!-- Erase algorithm -->
-                        <TextBlock x:Name="LblAlgorithm" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
-                        <TextBlock x:Name="LblAlgorithmDesc" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
-                        <ComboBox Width="200" HorizontalAlignment="Left" Margin="0,0,0,16"
-                                  SelectedIndex="{Binding EraseAlgorithmIndex}">
-                            <ComboBoxItem Content="Chroma Key"/>
-                            <ComboBoxItem Content="Lab Mask"/>
-                        </ComboBox>
+                        <TextBlock x:Name="LblAlgorithm" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+                        <RadioButton IsChecked="{Binding IsChromaKey}" Margin="0,0,0,2">
+                            <StackPanel>
+                                <TextBlock Text="Chroma Key" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="LblChromaKeyDesc" FontSize="11" Foreground="Gray"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton IsChecked="{Binding IsLabMask}" Margin="0,8,0,16">
+                            <StackPanel>
+                                <TextBlock Text="Lab Mask" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="LblLabMaskDesc" FontSize="11" Foreground="Gray"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </RadioButton>
 
                         <TextBlock x:Name="LblTolerance" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
                         <TextBlock x:Name="LblToleranceDesc" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
