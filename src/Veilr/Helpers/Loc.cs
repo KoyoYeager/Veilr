@@ -43,6 +43,9 @@ public static class Loc
     public static string LabMaskDesc => _lang == "en"
         ? "Sharp binary removal. Best for solid color blocks, bold text, and cases where chroma key over-blends."
         : "くっきり二値消去。ベタ塗り、太文字、クロマキーがぼやける場合に最適。";
+    public static string YCbCrDesc => _lang == "en"
+        ? "Broadcast industry standard. Luminance-independent keying on CbCr plane. Fast and robust."
+        : "放送業界標準。輝度に依存しないCbCr平面でのキーイング。高速で堅牢。";
 
     public static string EraseSettings => _lang == "en" ? "Erase mode settings" : "消去モード設定";
     public static string UpdateFrequency => _lang == "en" ? "Update rate:" : "更新頻度:";

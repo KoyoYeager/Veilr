@@ -12,9 +12,12 @@ public class ColorDetectorService
     /// </summary>
     public Bitmap EraseColor(Bitmap source, ColorSettings target)
     {
-        return target.EraseAlgorithm == "labmask"
-            ? EraseColorLabMask(source, target)
-            : EraseColorChromaKey(source, target);
+        return target.EraseAlgorithm switch
+        {
+            "labmask" => EraseColorLabMask(source, target),
+            "ycbcr" => EraseColorYCbCr(source, target),
+            _ => EraseColorChromaKey(source, target),
+        };
     }
 
     // ══════════════════════════════════════════════════════════
@@ -47,6 +50,11 @@ public class ColorDetectorService
         double smoothness = similarity * 0.8;                  // transition zone width
         double outerRadius = similarity + smoothness;          // beyond this: fully keep
 
+        // Color family: hue angle tolerance (degrees)
+        // Must be tight enough to exclude orange (例題 header at ~55°)
+        // while including red variants (pure red at ~40° vs target at ~39°)
+        double hueToleranceDeg = similarity * 0.5;
+
         // Pass 1: compute alpha for every pixel
         double[] alpha = new double[w * h];
         for (int y = 0; y < h; y++)
@@ -58,10 +66,8 @@ public class ColorDetectorService
                 double chromaDist = Math.Sqrt((pA - tA) * (pA - tA) + (pB - tB) * (pB - tB));
                 double pixelChroma = Math.Sqrt(pA * pA + pB * pB);
 
-                // Compute key distance (combined chrominance + hue angle)
                 double keyDist = chromaDist;
 
-                // Also consider hue angle for anti-aliased edges
                 if (pixelChroma > 2 && targetChroma > 5)
                 {
                     double pixelAngle = Math.Atan2(pB, pA);
@@ -69,12 +75,17 @@ public class ColorDetectorService
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
                     double angleDeg = angleDiff * 180.0 / Math.PI;
 
-                    // If hue angle is close, reduce the effective distance
-                    // (helps detect anti-aliased edges that have low chroma but correct hue)
-                    if (angleDeg <= outerRadius * 1.3)
+                    // Color family match: same hue direction → treat as same color
+                    // regardless of saturation/lightness difference
+                    if (angleDeg <= hueToleranceDeg && pixelChroma > 10)
+                    {
+                        // Effective distance based on hue angle alone
+                        keyDist = Math.Min(keyDist, angleDeg / hueToleranceDeg * similarity);
+                    }
+                    else if (angleDeg <= outerRadius * 1.3)
                     {
                         double angleBonus = (1.0 - angleDeg / (outerRadius * 1.3)) * similarity * 0.5;
-                        keyDist = Math.Max(0, chromaDist - angleBonus);
+                        keyDist = Math.Max(0, keyDist - angleBonus);
                     }
                 }
 
@@ -278,14 +289,18 @@ public class ColorDetectorService
 
                 bool directMatch = chromaDist <= maxDist;
                 bool edgeMatch = false;
+                bool familyMatch = false;
                 if (pixelChroma > 2 && targetChroma > 5)
                 {
                     double pixelAngle = Math.Atan2(pB, pA);
                     double angleDiff = Math.Abs(targetAngle - pixelAngle);
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-                    edgeMatch = angleDiff * 180.0 / Math.PI <= maxDist * 1.3;
+                    double angleDeg = angleDiff * 180.0 / Math.PI;
+                    edgeMatch = angleDeg <= maxDist * 1.3;
+                    // Color family: same hue direction with sufficient chroma
+                    familyMatch = angleDeg <= maxDist * 0.6 && pixelChroma > 10;
                 }
-                if (directMatch || edgeMatch)
+                if (directMatch || edgeMatch || familyMatch)
                     mask[y * w + x] = true;
             }
 
@@ -406,6 +421,113 @@ public class ColorDetectorService
 
     private static double LabF(double t) =>
         t > 0.008856 ? Math.Cbrt(t) : (7.787 * t + 16.0 / 116.0);
+
+    // ══════════════════════════════════════════════════════════
+    //  Algorithm 3: YCbCr Chroma Key (broadcast industry standard)
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// YCbCr color space keying — the broadcast/film industry standard.
+    /// Separates luminance (Y) from chrominance (Cb,Cr) completely.
+    /// Distance is computed on CbCr plane only, ignoring brightness.
+    /// </summary>
+    private Bitmap EraseColorYCbCr(Bitmap source, ColorSettings target)
+    {
+        int w = source.Width, h = source.Height;
+        var srcData = source.LockBits(new Rectangle(0, 0, w, h),
+            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int stride = srcData.Stride;
+        int bytes = Math.Abs(stride) * h;
+        byte[] src = new byte[bytes];
+        Marshal.Copy(srcData.Scan0, src, 0, bytes);
+        source.UnlockBits(srcData);
+
+        // Target in YCbCr
+        RgbToYCbCr(target.Rgb[0], target.Rgb[1], target.Rgb[2],
+            out double tY, out double tCb, out double tCr);
+
+        double similarity = target.Threshold.H * 1.8;
+        double smoothness = similarity * 0.7;
+        double outerRadius = similarity + smoothness;
+
+        // Pass 1: alpha from CbCr distance
+        double[] alpha = new double[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * stride + x * 4;
+                RgbToYCbCr(src[i + 2], src[i + 1], src[i],
+                    out double pY, out double pCb, out double pCr);
+
+                double dist = Math.Sqrt((pCb - tCb) * (pCb - tCb) + (pCr - tCr) * (pCr - tCr));
+
+                if (dist <= similarity)
+                    alpha[y * w + x] = 0.0;
+                else if (dist >= outerRadius)
+                    alpha[y * w + x] = 1.0;
+                else
+                    alpha[y * w + x] = (dist - similarity) / smoothness;
+            }
+
+        // Pass 2: background color
+        byte[] bgR = new byte[w * h], bgG = new byte[w * h], bgB = new byte[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                if (alpha[y * w + x] >= 1.0)
+                {
+                    int i = y * stride + x * 4;
+                    bgR[y * w + x] = src[i + 2];
+                    bgG[y * w + x] = src[i + 1];
+                    bgB[y * w + x] = src[i];
+                }
+                else
+                {
+                    var (nr, ng, nb) = FindBackground(src, alpha, stride, x, y, w, h);
+                    bgR[y * w + x] = nr;
+                    bgG[y * w + x] = ng;
+                    bgB[y * w + x] = nb;
+                }
+            }
+
+        // Pass 3: blend
+        var result = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        var dstData = result.LockBits(new Rectangle(0, 0, w, h),
+            ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        byte[] dst = new byte[bytes];
+
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * stride + x * 4;
+                int idx = y * w + x;
+                double a = alpha[idx];
+                if (a >= 1.0)
+                {
+                    dst[i] = src[i]; dst[i + 1] = src[i + 1];
+                    dst[i + 2] = src[i + 2]; dst[i + 3] = src[i + 3];
+                }
+                else
+                {
+                    dst[i]     = (byte)(src[i]     * a + bgB[idx] * (1 - a));
+                    dst[i + 1] = (byte)(src[i + 1] * a + bgG[idx] * (1 - a));
+                    dst[i + 2] = (byte)(src[i + 2] * a + bgR[idx] * (1 - a));
+                    dst[i + 3] = 255;
+                }
+            }
+
+        Marshal.Copy(dst, 0, dstData.Scan0, bytes);
+        result.UnlockBits(dstData);
+        return result;
+    }
+
+    private static void RgbToYCbCr(int r, int g, int b,
+        out double y, out double cb, out double cr)
+    {
+        y  =  0.299 * r + 0.587 * g + 0.114 * b;
+        cb = -0.169 * r - 0.331 * g + 0.500 * b + 128;
+        cr =  0.500 * r - 0.419 * g - 0.081 * b + 128;
+    }
 
     // ── Multiply blend ────────────────────────────────────────
 

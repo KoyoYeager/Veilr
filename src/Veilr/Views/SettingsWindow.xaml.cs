@@ -36,6 +36,7 @@ public partial class SettingsWindow : Window
         LblAlgorithm.Text = Loc.EraseAlgorithm;
         LblChromaKeyDesc.Text = Loc.ChromaKeyDesc;
         LblLabMaskDesc.Text = Loc.LabMaskDesc;
+        LblYCbCrDesc.Text = Loc.YCbCrDesc;
         LblTolerance.Text = Loc.EraseTolerance;
         LblToleranceDesc.Text = Loc.EraseToleranceDesc;
         LblStrict.Text = Loc.Strict;

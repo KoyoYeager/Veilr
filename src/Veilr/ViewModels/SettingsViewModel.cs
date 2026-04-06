@@ -53,7 +53,12 @@ public class SettingsViewModel : INotifyPropertyChanged
         var th = s.TargetColor.Threshold;
         _tolerance = Math.Clamp((int)(th.H / 0.45), 0, 100);
 
-        _eraseAlgorithmIndex = s.TargetColor.EraseAlgorithm == "labmask" ? 1 : 0;
+        _eraseAlgorithmIndex = s.TargetColor.EraseAlgorithm switch
+        {
+            "labmask" => 1,
+            "ycbcr" => 2,
+            _ => 0
+        };
 
         _updateIntervalMs = s.UpdateIntervalMs;
 
@@ -116,12 +121,23 @@ public class SettingsViewModel : INotifyPropertyChanged
     public bool IsChromaKey
     {
         get => _eraseAlgorithmIndex == 0;
-        set { if (value) { _eraseAlgorithmIndex = 0; OnPropertyChanged(nameof(IsChromaKey)); OnPropertyChanged(nameof(IsLabMask)); } }
+        set { if (value) { _eraseAlgorithmIndex = 0; NotifyAlgorithm(); } }
     }
     public bool IsLabMask
     {
         get => _eraseAlgorithmIndex == 1;
-        set { if (value) { _eraseAlgorithmIndex = 1; OnPropertyChanged(nameof(IsChromaKey)); OnPropertyChanged(nameof(IsLabMask)); } }
+        set { if (value) { _eraseAlgorithmIndex = 1; NotifyAlgorithm(); } }
+    }
+    public bool IsYCbCr
+    {
+        get => _eraseAlgorithmIndex == 2;
+        set { if (value) { _eraseAlgorithmIndex = 2; NotifyAlgorithm(); } }
+    }
+    private void NotifyAlgorithm()
+    {
+        OnPropertyChanged(nameof(IsChromaKey));
+        OnPropertyChanged(nameof(IsLabMask));
+        OnPropertyChanged(nameof(IsYCbCr));
     }
 
     // --- Behavior ---
@@ -168,7 +184,12 @@ public class SettingsViewModel : INotifyPropertyChanged
         s.TargetColor.Threshold.S = (int)(_tolerance * 1.0);   // 0-100
         s.TargetColor.Threshold.V = (int)(_tolerance * 1.0);   // 0-100
         s.TargetColor.ThresholdMode = _tolerance > 30 ? "flexible" : "strict";
-        s.TargetColor.EraseAlgorithm = _eraseAlgorithmIndex == 1 ? "labmask" : "chromakey";
+        s.TargetColor.EraseAlgorithm = _eraseAlgorithmIndex switch
+        {
+            1 => "labmask",
+            2 => "ycbcr",
+            _ => "chromakey"
+        };
 
         s.UpdateIntervalMs = _updateIntervalMs;
         s.UiTheme.Language = _language;

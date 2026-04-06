@@ -55,10 +55,17 @@
                                            TextWrapping="Wrap" Margin="0,2,0,0"/>
                             </StackPanel>
                         </RadioButton>
-                        <RadioButton IsChecked="{Binding IsLabMask}" Margin="0,8,0,16">
+                        <RadioButton IsChecked="{Binding IsLabMask}" Margin="0,8,0,2">
                             <StackPanel>
                                 <TextBlock Text="Lab Mask" FontWeight="SemiBold"/>
                                 <TextBlock x:Name="LblLabMaskDesc" FontSize="11" Foreground="Gray"
+                                           TextWrapping="Wrap" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton IsChecked="{Binding IsYCbCr}" Margin="0,8,0,16">
+                            <StackPanel>
+                                <TextBlock Text="YCbCr" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="LblYCbCrDesc" FontSize="11" Foreground="Gray"
                                            TextWrapping="Wrap" Margin="0,2,0,0"/>
                             </StackPanel>
                         </RadioButton>
