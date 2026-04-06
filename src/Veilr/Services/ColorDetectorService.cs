@@ -51,13 +51,13 @@ public class ColorDetectorService
 
                 // Criterion 2: same hue direction with some chroma (anti-aliased edges)
                 bool edgeMatch = false;
-                if (pixelChroma > 3 && targetChroma > 5)
+                if (pixelChroma > 2 && targetChroma > 5)
                 {
                     double pixelAngle = Math.Atan2(pB, pA);
                     double angleDiff = Math.Abs(targetAngle - pixelAngle);
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
                     double angleDiffDeg = angleDiff * 180.0 / Math.PI;
-                    edgeMatch = angleDiffDeg <= maxDist * 1.2;
+                    edgeMatch = angleDiffDeg <= maxDist * 1.3;
                 }
 
                 if (directMatch || edgeMatch)
@@ -67,7 +67,7 @@ public class ColorDetectorService
         // Pass 1.5: conditional dilation for remaining anti-aliased edge pixels
         // Only expand into pixels surrounded by 2+ marked neighbors
         // AND having some chroma in the target direction
-        for (int pass = 0; pass < 2; pass++)
+        for (int pass = 0; pass < 3; pass++)
         {
             bool[] next = new bool[w * h];
             Array.Copy(mask, next, mask.Length);
@@ -92,7 +92,7 @@ public class ColorDetectorService
                     double eAngle = Math.Atan2(eB, eA);
                     double aDiff = Math.Abs(targetAngle - eAngle);
                     if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
-                    if (aDiff * 180 / Math.PI <= 25)
+                    if (aDiff * 180 / Math.PI <= 28)
                         next[y * w + x] = true;
                 }
             mask = next;
@@ -157,34 +157,52 @@ public class ColorDetectorService
 
     // ── Pixel search ──────────────────────────────────────────
 
+    /// <summary>
+    /// Find replacement color by averaging multiple nearby non-marked pixels.
+    /// This produces smoother results than using a single nearest pixel.
+    /// </summary>
     private static (byte R, byte G, byte B) FindNearestClean(
         byte[] src, bool[] mask, int stride, int cx, int cy, int w, int h)
     {
-        for (int r = 1; r <= 50; r++)
+        int sumR = 0, sumG = 0, sumB = 0, count = 0;
+        const int samplesNeeded = 12;
+
+        for (int r = 1; r <= 50 && count < samplesNeeded; r++)
         {
-            for (int d = -r; d <= r; d++)
+            for (int d = -r; d <= r && count < samplesNeeded; d++)
             {
-                if (TryGet(src, mask, stride, cx + d, cy - r, w, h, out var c1)) return c1;
-                if (TryGet(src, mask, stride, cx + d, cy + r, w, h, out var c2)) return c2;
+                Accumulate(src, mask, stride, cx + d, cy - r, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                Accumulate(src, mask, stride, cx + d, cy + r, w, h, ref sumR, ref sumG, ref sumB, ref count);
                 if (d != -r && d != r)
                 {
-                    if (TryGet(src, mask, stride, cx - r, cy + d, w, h, out var c3)) return c3;
-                    if (TryGet(src, mask, stride, cx + r, cy + d, w, h, out var c4)) return c4;
+                    Accumulate(src, mask, stride, cx - r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                    Accumulate(src, mask, stride, cx + r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
                 }
             }
         }
-        return (255, 255, 255);
+
+        if (count == 0) return (255, 255, 255);
+        return ((byte)(sumR / count), (byte)(sumG / count), (byte)(sumB / count));
     }
 
-    private static bool TryGet(byte[] src, bool[] mask, int stride,
-        int x, int y, int w, int h, out (byte R, byte G, byte B) color)
+    private static void Accumulate(byte[] src, bool[] mask, int stride,
+        int x, int y, int w, int h, ref int sumR, ref int sumG, ref int sumB, ref int count)
     {
-        color = default;
-        if (x < 0 || x >= w || y < 0 || y >= h) return false;
-        if (mask[y * w + x]) return false;
+        if (x < 0 || x >= w || y < 0 || y >= h) return;
+        if (mask[y * w + x]) return;
+
+        // Skip pixels near marked pixels (avoid anti-aliased edge contamination)
+        for (int dy = -2; dy <= 2; dy++)
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < w && ny >= 0 && ny < h && mask[ny * w + nx])
+                    return;
+            }
+
         int i = y * stride + x * 4;
-        color = (src[i + 2], src[i + 1], src[i]);
-        return true;
+        sumR += src[i + 2]; sumG += src[i + 1]; sumB += src[i];
+        count++;
     }
 
     // ── Multiply blend ────────────────────────────────────────
