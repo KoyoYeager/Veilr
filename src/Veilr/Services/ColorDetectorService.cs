@@ -208,37 +208,45 @@ public class ColorDetectorService
     /// Find background color by averaging nearby fully-opaque pixels (alpha=1),
     /// skipping pixels near the edge of the keyed region.
     /// </summary>
+    /// <summary>
+    /// Find background color using MEDIAN of nearby clean pixels.
+    /// Median is more robust against outliers than mean.
+    /// </summary>
     private static (byte R, byte G, byte B) FindBackground(
         byte[] src, double[] alpha, int stride, int cx, int cy, int w, int h)
     {
-        int sumR = 0, sumG = 0, sumB = 0, count = 0;
-        const int samplesNeeded = 12;
+        var samplesR = new List<byte>(16);
+        var samplesG = new List<byte>(16);
+        var samplesB = new List<byte>(16);
 
-        for (int r = 1; r <= 50 && count < samplesNeeded; r++)
+        for (int r = 1; r <= 50 && samplesR.Count < 16; r++)
         {
-            for (int d = -r; d <= r && count < samplesNeeded; d++)
+            for (int d = -r; d <= r && samplesR.Count < 16; d++)
             {
-                TryAccum(src, alpha, stride, cx + d, cy - r, w, h, ref sumR, ref sumG, ref sumB, ref count);
-                TryAccum(src, alpha, stride, cx + d, cy + r, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                TryCollect(src, alpha, stride, cx + d, cy - r, w, h, samplesR, samplesG, samplesB);
+                TryCollect(src, alpha, stride, cx + d, cy + r, w, h, samplesR, samplesG, samplesB);
                 if (d != -r && d != r)
                 {
-                    TryAccum(src, alpha, stride, cx - r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
-                    TryAccum(src, alpha, stride, cx + r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                    TryCollect(src, alpha, stride, cx - r, cy + d, w, h, samplesR, samplesG, samplesB);
+                    TryCollect(src, alpha, stride, cx + r, cy + d, w, h, samplesR, samplesG, samplesB);
                 }
             }
         }
 
-        if (count == 0) return (255, 255, 255);
-        return ((byte)(sumR / count), (byte)(sumG / count), (byte)(sumB / count));
+        if (samplesR.Count == 0) return (255, 255, 255);
+
+        samplesR.Sort(); samplesG.Sort(); samplesB.Sort();
+        int mid = samplesR.Count / 2;
+        return (samplesR[mid], samplesG[mid], samplesB[mid]);
     }
 
-    private static void TryAccum(byte[] src, double[] alpha, int stride,
-        int x, int y, int w, int h, ref int sumR, ref int sumG, ref int sumB, ref int count)
+    private static void TryCollect(byte[] src, double[] alpha, int stride,
+        int x, int y, int w, int h, List<byte> rList, List<byte> gList, List<byte> bList)
     {
         if (x < 0 || x >= w || y < 0 || y >= h) return;
-        if (alpha[y * w + x] < 1.0) return; // only sample fully-opaque pixels
+        if (alpha[y * w + x] < 1.0) return;
 
-        // Skip if any neighbor has alpha < 1 (avoid edge contamination)
+        // Skip if any neighbor has alpha < 1 (edge contamination)
         for (int dy = -2; dy <= 2; dy++)
             for (int dx = -2; dx <= 2; dx++)
             {
@@ -248,8 +256,7 @@ public class ColorDetectorService
             }
 
         int i = y * stride + x * 4;
-        sumR += src[i + 2]; sumG += src[i + 1]; sumB += src[i];
-        count++;
+        rList.Add(src[i + 2]); gList.Add(src[i + 1]); bList.Add(src[i]);
     }
 
     // ══════════════════════════════════════════════════════════
@@ -363,24 +370,26 @@ public class ColorDetectorService
     private static (byte R, byte G, byte B) FindBackgroundMask(
         byte[] src, bool[] mask, int stride, int cx, int cy, int w, int h)
     {
-        int sumR = 0, sumG = 0, sumB = 0, count = 0;
-        for (int r = 1; r <= 50 && count < 12; r++)
-            for (int d = -r; d <= r && count < 12; d++)
+        var sR = new List<byte>(16); var sG = new List<byte>(16); var sB = new List<byte>(16);
+        for (int r = 1; r <= 50 && sR.Count < 16; r++)
+            for (int d = -r; d <= r && sR.Count < 16; d++)
             {
-                AccumMask(src, mask, stride, cx + d, cy - r, w, h, ref sumR, ref sumG, ref sumB, ref count);
-                AccumMask(src, mask, stride, cx + d, cy + r, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                CollectMask(src, mask, stride, cx + d, cy - r, w, h, sR, sG, sB);
+                CollectMask(src, mask, stride, cx + d, cy + r, w, h, sR, sG, sB);
                 if (d != -r && d != r)
                 {
-                    AccumMask(src, mask, stride, cx - r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
-                    AccumMask(src, mask, stride, cx + r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                    CollectMask(src, mask, stride, cx - r, cy + d, w, h, sR, sG, sB);
+                    CollectMask(src, mask, stride, cx + r, cy + d, w, h, sR, sG, sB);
                 }
             }
-        if (count == 0) return (255, 255, 255);
-        return ((byte)(sumR / count), (byte)(sumG / count), (byte)(sumB / count));
+        if (sR.Count == 0) return (255, 255, 255);
+        sR.Sort(); sG.Sort(); sB.Sort();
+        int mid = sR.Count / 2;
+        return (sR[mid], sG[mid], sB[mid]);
     }
 
-    private static void AccumMask(byte[] src, bool[] mask, int stride,
-        int x, int y, int w, int h, ref int sumR, ref int sumG, ref int sumB, ref int count)
+    private static void CollectMask(byte[] src, bool[] mask, int stride,
+        int x, int y, int w, int h, List<byte> rL, List<byte> gL, List<byte> bL)
     {
         if (x < 0 || x >= w || y < 0 || y >= h) return;
         if (mask[y * w + x]) return;
@@ -391,8 +400,7 @@ public class ColorDetectorService
                 if (nx >= 0 && nx < w && ny >= 0 && ny < h && mask[ny * w + nx]) return;
             }
         int i = y * stride + x * 4;
-        sumR += src[i + 2]; sumG += src[i + 1]; sumB += src[i];
-        count++;
+        rL.Add(src[i + 2]); gL.Add(src[i + 1]); bL.Add(src[i]);
     }
 
     // ── Lab conversion ────────────────────────────────────────
