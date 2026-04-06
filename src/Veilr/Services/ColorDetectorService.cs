@@ -138,6 +138,56 @@ public class ColorDetectorService
                 }
             }
 
+        // Pass 4: Despill — remove target color cast from edge pixels
+        double tNormR = target.Rgb[0] / 255.0;
+        double tNormG = target.Rgb[1] / 255.0;
+        double tNormB = target.Rgb[2] / 255.0;
+
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int idx = y * w + x;
+                if (alpha[idx] < 0.95) continue;
+
+                // Check if near a keyed pixel (within 4px)
+                bool nearKeyed = false;
+                for (int dy = -4; dy <= 4 && !nearKeyed; dy++)
+                    for (int dx = -4; dx <= 4 && !nearKeyed; dx++)
+                    {
+                        int nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && nx < w && ny >= 0 && ny < h && alpha[ny * w + nx] < 0.5)
+                            nearKeyed = true;
+                    }
+                if (!nearKeyed) continue;
+
+                int i = y * stride + x * 4;
+                double pR = dst[i + 2] / 255.0;
+                double pG = dst[i + 1] / 255.0;
+                double pB = dst[i] / 255.0;
+
+                // Despill: limit the dominant target channel
+                double spillLimit;
+                if (tNormR >= tNormG && tNormR >= tNormB)
+                {
+                    spillLimit = Math.Max(pG, pB);
+                    if (pR > spillLimit) pR = pR * 0.4 + spillLimit * 0.6;
+                }
+                else if (tNormG >= tNormR && tNormG >= tNormB)
+                {
+                    spillLimit = Math.Max(pR, pB);
+                    if (pG > spillLimit) pG = pG * 0.4 + spillLimit * 0.6;
+                }
+                else
+                {
+                    spillLimit = Math.Max(pR, pG);
+                    if (pB > spillLimit) pB = pB * 0.4 + spillLimit * 0.6;
+                }
+
+                dst[i + 2] = (byte)(Math.Clamp(pR, 0, 1) * 255);
+                dst[i + 1] = (byte)(Math.Clamp(pG, 0, 1) * 255);
+                dst[i]     = (byte)(Math.Clamp(pB, 0, 1) * 255);
+            }
+
         Marshal.Copy(dst, 0, dstData.Scan0, bytes);
         result.UnlockBits(dstData);
         return result;

@@ -48,27 +48,30 @@ public partial class SheetWindow : Window
 
     // ── Single-shot capture & process (no flickering) ──────────
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
     private async void CaptureAndProcess()
     {
         try
         {
-            int x, y, w, h;
-            if (_viewModel.IsEraseMode)
-            {
-                // Erase mode: body area only (exclude bars)
-                x = (int)Left;
-                y = (int)Top + 24;
-                w = (int)ActualWidth;
-                h = (int)ActualHeight - 24 - 32;
-            }
-            else
-            {
-                // Sheet mode: full window
-                x = (int)Left;
-                y = (int)Top;
-                w = (int)ActualWidth;
-                h = (int)ActualHeight;
-            }
+            // Use Win32 GetWindowRect for exact physical pixel coordinates
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            GetWindowRect(hwnd, out RECT wr);
+
+            double dpi;
+            try { dpi = GetDpiForSystem() / 96.0; } catch { dpi = 1.0; }
+            int barTop = (int)(24 * dpi);
+            int barBottom = (int)(32 * dpi);
+
+            // Always capture full window area (both modes)
+            int x = wr.Left;
+            int y = wr.Top;
+            int w = wr.Right - wr.Left;
+            int h = wr.Bottom - wr.Top;
             if (w <= 0 || h <= 0) return;
 
             Opacity = 0;
@@ -142,11 +145,15 @@ public partial class SheetWindow : Window
     {
         try
         {
-            // Export always captures body area only
-            int x = (int)Left;
-            int y = (int)Top + 24;
-            int w = (int)ActualWidth;
-            int h = (int)ActualHeight - 24 - 32;
+            // Export: use Win32 physical pixel coordinates
+            var expHwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            GetWindowRect(expHwnd, out RECT ewr);
+            double edpi;
+            try { edpi = GetDpiForSystem() / 96.0; } catch { edpi = 1.0; }
+            int x = ewr.Left;
+            int y = ewr.Top + (int)(24 * edpi);
+            int w = ewr.Right - ewr.Left;
+            int h = (ewr.Bottom - ewr.Top) - (int)(24 * edpi) - (int)(32 * edpi);
             if (w <= 0 || h <= 0) return;
 
             Opacity = 0;

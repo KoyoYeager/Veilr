@@ -73,17 +73,16 @@ public class SheetViewModel : INotifyPropertyChanged
         }
     }
 
-    // Sheet mode: image spans full window. Erase mode: image in body only.
-    public Visibility SheetImageVisibility => _isEraseMode ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility EraseImageVisibility => _isEraseMode ? Visibility.Visible : Visibility.Collapsed;
+    // Both modes use full-window image now (no separate visibility needed)
 
     // Erase mode: window frame + white bars + black text
-    public Thickness WindowBorderThickness => _isEraseMode ? new Thickness(1) : new Thickness(0);
-    public SolidColorBrush WindowBorderBrush => _isEraseMode
-        ? new SolidColorBrush(System.Windows.Media.Colors.Gray)
-        : new SolidColorBrush(System.Windows.Media.Colors.Transparent);
-    public SolidColorBrush BarBackground =>
+    // No border thickness to avoid content offset. Bars provide visual frame.
+    public Thickness WindowBorderThickness => new Thickness(0);
+    public SolidColorBrush WindowBorderBrush =>
         new SolidColorBrush(System.Windows.Media.Colors.Transparent);
+    public SolidColorBrush BarBackground => _isEraseMode
+        ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255))
+        : new SolidColorBrush(System.Windows.Media.Colors.Transparent);
     public SolidColorBrush BarForeground => _isEraseMode
         ? new SolidColorBrush(System.Windows.Media.Colors.Black)
         : TextForeground;
@@ -110,8 +109,6 @@ public class SheetViewModel : INotifyPropertyChanged
     private void NotifyModeVisuals()
     {
         OnPropertyChanged(nameof(SheetBrush));
-        OnPropertyChanged(nameof(SheetImageVisibility));
-        OnPropertyChanged(nameof(EraseImageVisibility));
         OnPropertyChanged(nameof(WindowBorderThickness));
         OnPropertyChanged(nameof(WindowBorderBrush));
         OnPropertyChanged(nameof(BarBackground));
