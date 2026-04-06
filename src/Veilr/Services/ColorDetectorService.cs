@@ -303,15 +303,15 @@ public class ColorDetectorService
                 bool directMatch = chromaDist <= maxDist;
                 bool edgeMatch = false;
                 bool familyMatch = false;
-                if (pixelChroma > 2 && targetChroma > 5)
+                if (pixelChroma > 15 && targetChroma > 5)
                 {
                     double pixelAngle = Math.Atan2(pB, pA);
                     double angleDiff = Math.Abs(targetAngle - pixelAngle);
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
                     double angleDeg = angleDiff * 180.0 / Math.PI;
-                    edgeMatch = angleDeg <= maxDist * 1.3;
+                    edgeMatch = angleDeg <= maxDist * 0.8;
                     // Color family: same hue direction with sufficient chroma
-                    familyMatch = angleDeg <= maxDist * 0.6 && pixelChroma > 10;
+                    familyMatch = angleDeg <= maxDist * 0.5 && pixelChroma > 20;
                 }
                 if (directMatch || edgeMatch || familyMatch)
                     mask[y * w + x] = true;
@@ -464,7 +464,13 @@ public class ColorDetectorService
         double smoothness = similarity * 0.7;
         double outerRadius = similarity + smoothness;
 
-        // Pass 1: alpha from CbCr distance
+        // CbCr angle for color family matching
+        double tCbCentered = tCb - 128, tCrCentered = tCr - 128;
+        double targetAngleCbCr = Math.Atan2(tCrCentered, tCbCentered);
+        double targetChromaCbCr = Math.Sqrt(tCbCentered * tCbCentered + tCrCentered * tCrCentered);
+        double hueToleranceCbCr = similarity * 0.5;
+
+        // Pass 1: alpha from CbCr distance + color family
         double[] alpha = new double[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
@@ -474,6 +480,19 @@ public class ColorDetectorService
                     out double pY, out double pCb, out double pCr);
 
                 double dist = Math.Sqrt((pCb - tCb) * (pCb - tCb) + (pCr - tCr) * (pCr - tCr));
+
+                // Color family: same CbCr angle direction
+                double pCbC = pCb - 128, pCrC = pCr - 128;
+                double pChromaCbCr = Math.Sqrt(pCbC * pCbC + pCrC * pCrC);
+                if (pChromaCbCr > 5 && targetChromaCbCr > 5)
+                {
+                    double pAngle = Math.Atan2(pCrC, pCbC);
+                    double aDiff = Math.Abs(targetAngleCbCr - pAngle);
+                    if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
+                    double aDeg = aDiff * 180.0 / Math.PI;
+                    if (aDeg <= hueToleranceCbCr && pChromaCbCr > 8)
+                        dist = Math.Min(dist, aDeg / hueToleranceCbCr * similarity);
+                }
 
                 if (dist <= similarity)
                     alpha[y * w + x] = 0.0;
