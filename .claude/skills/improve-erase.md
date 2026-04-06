@@ -1,44 +1,48 @@
 ---
 name: improve-erase
-description: 消去モードの色除去アルゴリズムを自動改善ループで実行する
+description: 消去モードの色除去アルゴリズムを改善バックログに基づいて反復改善する
 user_invocable: true
 ---
 
 # 消去モード改善ループ
 
-Veilrの消去モード（CIE Lab色差ベースの色除去）を反復的に改善するスキル。
-設定ファイルに保存されたウィンドウ位置・ターゲット色を使って、ビルド→起動→スクリーンショット→分析→修正を繰り返す。
+`docs/improvement-backlog.md` の改善案リストを上から順に実施し、各ループでバックログ自体も更新する。
 
-## 手順
+## ループの流れ（1周分）
 
-以下のループを**赤文字が完全に消え、かつ黒文字や他の色に影響がなくなるまで**繰り返す。
-
-### 1. 現在の設定確認
+### ステップ1: バックログ確認
 
 ```bash
-cat C:/workspace/Veilr/build/settings.json
+cat docs/improvement-backlog.md
 ```
 
-ターゲット色(target_color.rgb)、閾値(threshold)、ウィンドウ位置(last_session.sheets)を確認。
+**改善案リストの一番上**の項目を今回実施する。
 
-### 2. ビルド
+### ステップ2: 実装
+
+`src/Veilr/Services/ColorDetectorService.cs` を中心に改善を実装する。
+
+新アルゴリズムの場合:
+- 既存アルゴリズムを壊さず**新メソッドとして追加**
+- `EraseColor()` のディスパッチに追加
+- `AppSettings.cs` の `EraseAlgorithm` に新しい値を追加
+
+### ステップ3: ビルド・起動・スクリーンショット
 
 ```bash
 powershell -Command "Get-Process -Name 'Veilr' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1"
-dotnet build src/Veilr -c Debug
+dotnet publish src/Veilr -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o ./dist
 ```
 
-### 3. 起動 & スクリーンショット取得
-
+settings.jsonをdist/にコピーしてから起動:
 ```bash
-cd C:/workspace/Veilr && ./build/Veilr.exe &
-sleep 5
+cp build/settings.json dist/settings.json 2>/dev/null
+cd C:/workspace/Veilr && ./dist/Veilr.exe &
+sleep 6
 ```
 
-PowerShellでウィンドウを検出し、そのエリアをスクリーンショットとして `C:/tmp/veilr_improve_N.png` に保存する。
-
+PowerShellでウィンドウ検出→クロップ→保存:
 ```powershell
-# ウィンドウ検出 → クロップ → 保存のテンプレート
 Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System; using System.Runtime.InteropServices;
@@ -63,9 +67,9 @@ $c.Save("C:/tmp/veilr_improve_N.png", [System.Drawing.Imaging.ImageFormat]::Png)
 $c.Dispose(); $g.Dispose(); $b.Dispose()
 ```
 
-### 4. スクリーンショット分析
+### ステップ4: 品質チェック
 
-Readツールで画像を確認し、以下を評価：
+Readツールでスクリーンショットを確認し、全項目を評価:
 
 | チェック項目 | 合格基準 |
 |---|---|
@@ -77,56 +81,63 @@ Readツールで画像を確認し、以下を評価：
 | 数字・記号 | 数値（0.8626等）やカッコ・ドットが欠損していない |
 | 置換品質 | 消去跡が周囲の背景色に自然に溶け込み、白い穴や色のにじみがない |
 
-### 5. 問題があれば修正
+### ステップ5: 結果に応じた判断
 
-修正対象ファイル: `src/Veilr/Services/ColorDetectorService.cs`
+#### 改善が確認できた場合
 
-**調整可能なパラメータ:**
-- `IsTarget()` の判定ロジック（Lab色相距離、角度マッチ、彩度閾値）
-- 条件付き膨張の隣接数閾値・角度閾値
-- `FindNearestClean()` の探索半径
-- settings.json の `threshold.h` 値
+新アルゴリズムなら設定UIに追加:
+1. `AppSettings.cs` に選択肢追加
+2. `SettingsViewModel.cs` にラジオボタン用プロパティ追加
+3. `SettingsWindow.xaml` にラジオボタン+説明文追加
+4. `Loc.cs` に日英の説明文追加
 
-**よくある問題と対策:**
+#### 既存アルゴリズムより悪い場合
 
-| 症状 | 原因 | 対策 |
-|---|---|---|
-| 黒文字が消える | 無彩色フィルターが不十分 | `pixelChroma > N` のNを上げる |
-| 赤文字が残る | 色相距離閾値が狭い | `maxDist` を広げるか角度マッチ閾値を緩和 |
-| 茶色が巻き込まれる | 色相角度閾値が広い | `angleDiffDeg` 閾値を狭める |
-| AA辺が残る | 膨張条件が厳しい | 隣接数を減らすか角度閾値を広げる |
+コードは残すが設定UIには追加しない。バックログに「結果不良」と記録。
 
-### 6. 再ビルド → 3に戻る
+### ステップ6: アルゴリズム整理（3つ以上になった場合）
 
-プロセスを停止してからビルドすること:
+以下を検討:
+- **デフォルトの再決定**: 全テストで最も安定した結果のアルゴリズムをデフォルトに
+- **劣化アルゴリズムの削除**: 全ケースで他に劣るアルゴリズムは選択肢から除去
+- 残すアルゴリズムは**明確に異なる得意分野**があるものだけ
+
+### ステップ7: バックログ更新
+
+`docs/improvement-backlog.md` を更新:
+
+1. 実施した項目に結果（✅成功/❌失敗/△部分的）を記録
+2. 今回の実装で**新たに気づいた改善案**を追加
+3. **優先順位を再評価**して並べ替え
+   - 今回の結果から得た知見で優先度が変わることがある
+   - 新しい改善案が既存より高優先度になることもある
+
+### ステップ8: コミット
+
 ```bash
-powershell -Command "Get-Process -Name 'Veilr' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1"
-dotnet build src/Veilr -c Debug
+git add src/ docs/ .claude/skills/ dist/Veilr.exe
+git commit -m "Improvement loop: [実施した改善の概要]"
+git push origin main
 ```
 
-### 7. 合格したらコミット
+→ **ステップ1に戻る**（次の改善案を実施）
 
-```bash
-git add src/Veilr/Services/ColorDetectorService.cs
-git commit -m "Improve erase mode color detection algorithm"
-```
-
-## 改善バックログ
-
-`docs/improvement-backlog.md` に優先度付きの改善案リストがある。改善ループで次に何を試すか迷ったらこのファイルを参照。
+---
 
 ## 参照ファイル
 
-- 改善バックログ: `docs/improvement-backlog.md`（次に何を試すか）
+- 改善バックログ: `docs/improvement-backlog.md`（優先順位付き改善案リスト）
 - アルゴリズム仕様: `docs/algorithm.md`
 - 色検出サービス: `src/Veilr/Services/ColorDetectorService.cs`
-- 設定ViewModel: `src/Veilr/ViewModels/SettingsViewModel.cs`（許容範囲→閾値マッピング）
-- HSVコンバータ: `src/Veilr/Helpers/HsvConverter.cs`（参考用、現在はLabベース）
+- 設定モデル: `src/Veilr/Models/AppSettings.cs`（`EraseAlgorithm`フィールド）
+- 設定ViewModel: `src/Veilr/ViewModels/SettingsViewModel.cs`
+- 設定UI: `src/Veilr/Views/SettingsWindow.xaml`
+- ローカライゼーション: `src/Veilr/Helpers/Loc.cs`
 
 ## 重要な原則
 
-- **CIE Lab色空間**を使用（HSVは使わない）
-- **色相距離**（a,bコンポーネント）で判定、明度(L)は無視
-- **色相角度**でアンチエイリアス辺を検出
-- **無彩色フィルター**: `pixelChroma > 3` で黒/白/灰色を除外
-- 閾値調整は `settings.json` の `threshold.h` で制御（`maxDist = h * 1.35`）
+- **バックログの一番上から順に実施**する
+- 1周ごとにバックログ自体を更新・再優先順位化する
+- 新アルゴリズムは**既存を壊さず追加**。良ければUIに選択肢追加
+- アルゴリズムが増えすぎたら**劣るものを削除**し、**デフォルトを最良に更新**
+- 隣接分野（映像制作、印刷、医療画像等）の技術を常に意識する
