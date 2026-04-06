@@ -46,7 +46,7 @@ public class ColorDetectorService
         double targetAngle = Math.Atan2(tB, tA);
 
         // Thresholds from settings (derived from tolerance slider)
-        double similarity = target.Threshold.H * 1.35;       // inner radius: fully remove
+        double similarity = target.Threshold.H * 1.5;        // inner radius: fully remove
         double smoothness = similarity * 0.8;                  // transition zone width
         double outerRadius = similarity + smoothness;          // beyond this: fully keep
 
@@ -288,7 +288,7 @@ public class ColorDetectorService
             out double tL, out double tA, out double tB);
         double targetChroma = Math.Sqrt(tA * tA + tB * tB);
         double targetAngle = Math.Atan2(tB, tA);
-        double maxDist = target.Threshold.H * 1.35;
+        double maxDist = target.Threshold.H * 1.5;
 
         // Pass 1: mark target pixels
         bool[] mask = new bool[w * h];
@@ -309,7 +309,7 @@ public class ColorDetectorService
                     double angleDiff = Math.Abs(targetAngle - pixelAngle);
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
                     double angleDeg = angleDiff * 180.0 / Math.PI;
-                    edgeMatch = angleDeg <= maxDist * 0.8;
+                    edgeMatch = angleDeg <= maxDist * 1.0;
                     // Color family: same hue direction with sufficient chroma
                     familyMatch = angleDeg <= maxDist * 0.5 && pixelChroma > 20;
                 }
@@ -336,7 +336,7 @@ public class ColorDetectorService
                     int i = y * stride + x * 4;
                     RgbToLab(src[i + 2], src[i + 1], src[i], out _, out double eA, out double eB);
                     double eChroma = Math.Sqrt(eA * eA + eB * eB);
-                    if (eChroma < 1.5) continue;
+                    if (eChroma < 1.0) continue;
                     double eAngle = Math.Atan2(eB, eA);
                     double aDiff = Math.Abs(targetAngle - eAngle);
                     if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
@@ -460,7 +460,7 @@ public class ColorDetectorService
         RgbToYCbCr(target.Rgb[0], target.Rgb[1], target.Rgb[2],
             out double tY, out double tCb, out double tCr);
 
-        double similarity = target.Threshold.H * 1.8;
+        double similarity = target.Threshold.H * 2.0;
         double smoothness = similarity * 0.7;
         double outerRadius = similarity + smoothness;
 
