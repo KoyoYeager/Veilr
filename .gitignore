@@ -1,0 +1,30 @@
+## .NET
+bin/
+obj/
+build/
+
+## Distribution (keep Veilr.exe)
+dist/*
+!dist/Veilr.exe
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## VS Code
+.vscode/
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+## OS
+.DS_Store
+Thumbs.db

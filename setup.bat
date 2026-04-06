@@ -1,0 +1,6 @@
+@echo off
+echo [1/2] .NET SDK確認...
+dotnet --version || (echo .NET SDK が見つかりません。 && exit /b 1)
+echo [2/2] NuGetパッケージ復元...
+dotnet restore src/Veilr
+echo セットアップ完了

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <clipPath id="bg"><rect x="0" y="0" width="256" height="256" rx="40"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="40" fill="#ffffff"/>
+  <path d="M28 12 L128 244 L228 12 L188 12 L128 192 L68 12 Z" fill="#CC2E2E"/>
+  <polygon points="128,0 256,0 256,256 56,256" fill="#CC2020" opacity="0.85" clip-path="url(#bg)"/>
+</svg>

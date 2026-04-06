@@ -1,0 +1,22 @@
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore src/Veilr
+      - run: dotnet build src/Veilr -c Release --no-restore
+      - run: dotnet publish src/Veilr -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o ./dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Veilr-win-x64
+          path: ./dist/Veilr.exe

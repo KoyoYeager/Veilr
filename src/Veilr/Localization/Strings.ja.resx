@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true"/>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter</value></resheader>
+
+  <data name="SheetMode" xml:space="preserve"><value>シートモード</value></data>
+  <data name="EraseMode" xml:space="preserve"><value>消去モード</value></data>
+  <data name="SheetModeFullScreen" xml:space="preserve"><value>シートモード（全画面）</value></data>
+  <data name="EraseModeFullScreen" xml:space="preserve"><value>消去モード（全画面）</value></data>
+  <data name="SwitchToEraseMode" xml:space="preserve"><value>消去モードに切替</value></data>
+  <data name="SwitchToSheetMode" xml:space="preserve"><value>シートモードに切替</value></data>
+  <data name="FullScreen" xml:space="preserve"><value>全画面</value></data>
+  <data name="ExitFullScreen" xml:space="preserve"><value>解除</value></data>
+  <data name="Save" xml:space="preserve"><value>保存</value></data>
+  <data name="Settings" xml:space="preserve"><value>設定</value></data>
+  <data name="ShowHideSheet" xml:space="preserve"><value>シートを表示 / 非表示</value></data>
+  <data name="Exit" xml:space="preserve"><value>終了</value></data>
+  <data name="TabColor" xml:space="preserve"><value>色設定</value></data>
+  <data name="TabBehavior" xml:space="preserve"><value>動作</value></data>
+  <data name="TabHotkey" xml:space="preserve"><value>ホットキー</value></data>
+  <data name="TabAppearance" xml:space="preserve"><value>外観</value></data>
+</root>
