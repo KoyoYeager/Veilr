@@ -111,8 +111,13 @@ git add src/Veilr/Services/ColorDetectorService.cs
 git commit -m "Improve erase mode color detection algorithm"
 ```
 
+## 改善バックログ
+
+`docs/improvement-backlog.md` に優先度付きの改善案リストがある。改善ループで次に何を試すか迷ったらこのファイルを参照。
+
 ## 参照ファイル
 
+- 改善バックログ: `docs/improvement-backlog.md`（次に何を試すか）
 - アルゴリズム仕様: `docs/algorithm.md`
 - 色検出サービス: `src/Veilr/Services/ColorDetectorService.cs`
 - 設定ViewModel: `src/Veilr/ViewModels/SettingsViewModel.cs`（許容範囲→閾値マッピング）
