@@ -8,11 +8,24 @@ namespace Veilr.Services;
 public class ColorDetectorService
 {
     /// <summary>
-    /// Chroma-key style color removal using CIE Lab color distance with soft alpha blending.
-    /// Instead of binary mark/replace, each pixel gets a continuous alpha (0=fully remove, 1=keep).
-    /// This produces smooth transitions at edges like professional chroma key.
+    /// Dispatch to the selected erase algorithm.
     /// </summary>
     public Bitmap EraseColor(Bitmap source, ColorSettings target)
+    {
+        return target.EraseAlgorithm == "labmask"
+            ? EraseColorLabMask(source, target)
+            : EraseColorChromaKey(source, target);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Algorithm 1: Chroma Key (soft alpha blending)
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Chroma-key style: continuous alpha (0.0-1.0) with smooth blending.
+    /// Best for: gradual color boundaries, printed text with heavy anti-aliasing.
+    /// </summary>
+    private Bitmap EraseColorChromaKey(Bitmap source, ColorSettings target)
     {
         int w = source.Width, h = source.Height;
         var srcData = source.LockBits(new Rectangle(0, 0, w, h),
@@ -173,6 +186,145 @@ public class ColorDetectorService
                     return;
             }
 
+        int i = y * stride + x * 4;
+        sumR += src[i + 2]; sumG += src[i + 1]; sumB += src[i];
+        count++;
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Algorithm 2: Lab Mask (binary mask + averaged replacement)
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Binary mask with 3-layer detection + conditional dilation + averaged replacement.
+    /// Best for: sharp text, solid color blocks, when chroma key over-blends.
+    /// </summary>
+    private Bitmap EraseColorLabMask(Bitmap source, ColorSettings target)
+    {
+        int w = source.Width, h = source.Height;
+        var srcData = source.LockBits(new Rectangle(0, 0, w, h),
+            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int stride = srcData.Stride;
+        int bytes = Math.Abs(stride) * h;
+        byte[] src = new byte[bytes];
+        Marshal.Copy(srcData.Scan0, src, 0, bytes);
+        source.UnlockBits(srcData);
+
+        RgbToLab(target.Rgb[0], target.Rgb[1], target.Rgb[2],
+            out double tL, out double tA, out double tB);
+        double targetChroma = Math.Sqrt(tA * tA + tB * tB);
+        double targetAngle = Math.Atan2(tB, tA);
+        double maxDist = target.Threshold.H * 1.35;
+
+        // Pass 1: mark target pixels
+        bool[] mask = new bool[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * stride + x * 4;
+                RgbToLab(src[i + 2], src[i + 1], src[i], out double pL, out double pA, out double pB);
+                double chromaDist = Math.Sqrt((pA - tA) * (pA - tA) + (pB - tB) * (pB - tB));
+                double pixelChroma = Math.Sqrt(pA * pA + pB * pB);
+
+                bool directMatch = chromaDist <= maxDist;
+                bool edgeMatch = false;
+                if (pixelChroma > 2 && targetChroma > 5)
+                {
+                    double pixelAngle = Math.Atan2(pB, pA);
+                    double angleDiff = Math.Abs(targetAngle - pixelAngle);
+                    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                    edgeMatch = angleDiff * 180.0 / Math.PI <= maxDist * 1.3;
+                }
+                if (directMatch || edgeMatch)
+                    mask[y * w + x] = true;
+            }
+
+        // Pass 1.5: conditional dilation
+        for (int pass = 0; pass < 3; pass++)
+        {
+            bool[] next = new bool[w * h];
+            Array.Copy(mask, next, mask.Length);
+            for (int y = 1; y < h - 1; y++)
+                for (int x = 1; x < w - 1; x++)
+                {
+                    if (next[y * w + x]) continue;
+                    int neighbors = 0;
+                    if (mask[(y - 1) * w + x]) neighbors++;
+                    if (mask[(y + 1) * w + x]) neighbors++;
+                    if (mask[y * w + x - 1]) neighbors++;
+                    if (mask[y * w + x + 1]) neighbors++;
+                    if (neighbors < 3) continue;
+
+                    int i = y * stride + x * 4;
+                    RgbToLab(src[i + 2], src[i + 1], src[i], out _, out double eA, out double eB);
+                    double eChroma = Math.Sqrt(eA * eA + eB * eB);
+                    if (eChroma < 1.5) continue;
+                    double eAngle = Math.Atan2(eB, eA);
+                    double aDiff = Math.Abs(targetAngle - eAngle);
+                    if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
+                    if (aDiff * 180 / Math.PI <= 28)
+                        next[y * w + x] = true;
+                }
+            mask = next;
+        }
+
+        // Pass 2: replace with averaged background
+        var result = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        var dstData = result.LockBits(new Rectangle(0, 0, w, h),
+            ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        byte[] dst = new byte[bytes];
+
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * stride + x * 4;
+                if (!mask[y * w + x])
+                {
+                    dst[i] = src[i]; dst[i + 1] = src[i + 1];
+                    dst[i + 2] = src[i + 2]; dst[i + 3] = src[i + 3];
+                }
+                else
+                {
+                    var (nr, ng, nb) = FindBackgroundMask(src, mask, stride, x, y, w, h);
+                    dst[i] = nb; dst[i + 1] = ng; dst[i + 2] = nr; dst[i + 3] = 255;
+                }
+            }
+
+        Marshal.Copy(dst, 0, dstData.Scan0, bytes);
+        result.UnlockBits(dstData);
+        return result;
+    }
+
+    private static (byte R, byte G, byte B) FindBackgroundMask(
+        byte[] src, bool[] mask, int stride, int cx, int cy, int w, int h)
+    {
+        int sumR = 0, sumG = 0, sumB = 0, count = 0;
+        for (int r = 1; r <= 50 && count < 12; r++)
+            for (int d = -r; d <= r && count < 12; d++)
+            {
+                AccumMask(src, mask, stride, cx + d, cy - r, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                AccumMask(src, mask, stride, cx + d, cy + r, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                if (d != -r && d != r)
+                {
+                    AccumMask(src, mask, stride, cx - r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                    AccumMask(src, mask, stride, cx + r, cy + d, w, h, ref sumR, ref sumG, ref sumB, ref count);
+                }
+            }
+        if (count == 0) return (255, 255, 255);
+        return ((byte)(sumR / count), (byte)(sumG / count), (byte)(sumB / count));
+    }
+
+    private static void AccumMask(byte[] src, bool[] mask, int stride,
+        int x, int y, int w, int h, ref int sumR, ref int sumG, ref int sumB, ref int count)
+    {
+        if (x < 0 || x >= w || y < 0 || y >= h) return;
+        if (mask[y * w + x]) return;
+        for (int dy = -2; dy <= 2; dy++)
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int nx = x + dx, ny = y + dy;
+                if (nx >= 0 && nx < w && ny >= 0 && ny < h && mask[ny * w + nx]) return;
+            }
         int i = y * stride + x * 4;
         sumR += src[i + 2]; sumG += src[i + 1]; sumB += src[i];
         count++;

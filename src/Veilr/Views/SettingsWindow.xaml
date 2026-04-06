@@ -46,6 +46,15 @@
                             </TextBlock>
                         </Grid>
 
+                        <!-- Erase algorithm -->
+                        <TextBlock x:Name="LblAlgorithm" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="LblAlgorithmDesc" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
+                        <ComboBox Width="200" HorizontalAlignment="Left" Margin="0,0,0,16"
+                                  SelectedIndex="{Binding EraseAlgorithmIndex}">
+                            <ComboBoxItem Content="Chroma Key"/>
+                            <ComboBoxItem Content="Lab Mask"/>
+                        </ComboBox>
+
                         <TextBlock x:Name="LblTolerance" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,4"/>
                         <TextBlock x:Name="LblToleranceDesc" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
                         <Grid Margin="0,0,0,4">

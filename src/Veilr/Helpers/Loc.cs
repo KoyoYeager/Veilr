@@ -36,6 +36,10 @@ public static class Loc
         : "値が大きいほど、ターゲット色に近い色も消去対象になります";
     public static string Strict => _lang == "en" ? "Strict" : "厳密";
     public static string Flexible => _lang == "en" ? "Flexible" : "柔軟";
+    public static string EraseAlgorithm => _lang == "en" ? "Erase algorithm" : "消去アルゴリズム";
+    public static string EraseAlgorithmDesc => _lang == "en"
+        ? "Chroma Key: smooth blending at edges. Lab Mask: sharp binary removal."
+        : "クロマキー: 境界が滑らか。Labマスク: くっきり消去。";
 
     public static string EraseSettings => _lang == "en" ? "Erase mode settings" : "消去モード設定";
     public static string UpdateFrequency => _lang == "en" ? "Update rate:" : "更新頻度:";

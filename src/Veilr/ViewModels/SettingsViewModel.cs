@@ -14,6 +14,9 @@ public class SettingsViewModel : INotifyPropertyChanged
     // Erase mode tolerance (0-100)
     private int _tolerance;
 
+    // Erase algorithm
+    private int _eraseAlgorithmIndex;
+
     // Behavior
     private int _updateIntervalMs;
 
@@ -23,7 +26,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     // Snapshot of initial values for change detection
     private int _initR, _initG, _initB;
     private double _initOpacity;
-    private int _initTolerance, _initInterval;
+    private int _initTolerance, _initInterval, _initAlgorithm;
     private string _initLanguage = "ja", _initHotkey = "ctrl+shift+e";
 
     // Hotkey
@@ -50,6 +53,8 @@ public class SettingsViewModel : INotifyPropertyChanged
         var th = s.TargetColor.Threshold;
         _tolerance = Math.Clamp((int)(th.H / 0.45), 0, 100);
 
+        _eraseAlgorithmIndex = s.TargetColor.EraseAlgorithm == "labmask" ? 1 : 0;
+
         _updateIntervalMs = s.UpdateIntervalMs;
 
         _language = s.UiTheme.Language;
@@ -59,6 +64,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _initR = _colorR; _initG = _colorG; _initB = _colorB;
         _initOpacity = _opacity; _initTolerance = _tolerance;
         _initInterval = _updateIntervalMs;
+        _initAlgorithm = _eraseAlgorithmIndex;
         _initLanguage = _language; _initHotkey = _hotkeyToggleSheet;
     }
 
@@ -106,6 +112,13 @@ public class SettingsViewModel : INotifyPropertyChanged
         set { _tolerance = Math.Clamp(value, 0, 100); OnPropertyChanged(nameof(Tolerance)); }
     }
 
+    // --- Erase algorithm ---
+    public int EraseAlgorithmIndex
+    {
+        get => _eraseAlgorithmIndex;
+        set { _eraseAlgorithmIndex = value; OnPropertyChanged(nameof(EraseAlgorithmIndex)); }
+    }
+
     // --- Behavior ---
     public int UpdateIntervalMs
     {
@@ -124,6 +137,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _colorR != _initR || _colorG != _initG || _colorB != _initB
         || _opacity != _initOpacity || _tolerance != _initTolerance
         || _updateIntervalMs != _initInterval
+        || _eraseAlgorithmIndex != _initAlgorithm
         || _language != _initLanguage || _hotkeyToggleSheet != _initHotkey;
 
     // --- Hotkey ---
@@ -149,6 +163,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         s.TargetColor.Threshold.S = (int)(_tolerance * 1.0);   // 0-100
         s.TargetColor.Threshold.V = (int)(_tolerance * 1.0);   // 0-100
         s.TargetColor.ThresholdMode = _tolerance > 30 ? "flexible" : "strict";
+        s.TargetColor.EraseAlgorithm = _eraseAlgorithmIndex == 1 ? "labmask" : "chromakey";
 
         s.UpdateIntervalMs = _updateIntervalMs;
         s.UiTheme.Language = _language;

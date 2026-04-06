@@ -25,6 +25,7 @@ public class ColorSettings
     public int[] Rgb { get; set; } = [255, 0, 0];
     public ThresholdSettings Threshold { get; set; } = new();
     public string ThresholdMode { get; set; } = "strict";
+    public string EraseAlgorithm { get; set; } = "chromakey"; // "chromakey" or "labmask"
 }
 
 public class ThresholdSettings
