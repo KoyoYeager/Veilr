@@ -6,7 +6,7 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/OS-Windows%2010%2F11-blue.svg)]()
 
-[日本語](README.md)
+[Japanese](README.md)
 
 ---
 
@@ -18,20 +18,16 @@ Use it as a digital version of a red study sheet to hide answers, or remove unwa
 
 ## Features
 
-- **Sheet Mode** — Place a colored, semi-transparent overlay on your screen to hide same-colored text (like a physical red study sheet)
-- **Erase Mode** — Detect target-colored pixels and replace them with surrounding colors for complete removal
+- **Sheet Mode** — Multiply blend (same physics as a real red study sheet) to hide same-colored text
+- **Erase Mode** — Detect target-colored pixels and replace them with surrounding colors for seamless removal
+- **3 Erase Algorithms** — Choose from Chroma Key / Lab Mask / YCbCr
+- **Color Family Auto-Detection** — Pick one shade of red and it automatically catches all similar reds
 - **Full-Screen Support** — Select a monitor and expand the sheet to cover the entire screen
 - **Image Export** — Save color-erased screenshots as PNG / JPEG / BMP
-- **Color Picker** — Eyedropper tool to pick any color from your screen
-- **Color History & Presets** — Automatically tracks used colors; save favorites as presets
+- **Color Picker** — Eyedropper tool with zoom preview to pick any color from your screen
 - **Session Restore** — Remembers color, position, size, and mode between sessions
-- **Dark / Light Theme** — Customizable accent colors
 - **Japanese / English UI** — Switch language from settings
 - **Portable** — Single exe, no installation required
-
-## Screenshots
-
-> *(To be added after development)*
 
 ## System Requirements
 
@@ -42,43 +38,88 @@ Use it as a digital version of a red study sheet to hide answers, or remove unwa
 
 Download the latest `Veilr-win-x64.zip` from the [Releases](https://github.com/KoyoYeager/Veilr/releases) page, extract it, and run `Veilr.exe`.
 
+Or download `dist/Veilr.exe` (self-contained single exe) directly.
+
 ## Usage
 
 ### Basic Operation
 
 1. Launch `Veilr.exe` — it stays in the system tray and displays a sheet window
-2. Drag the sheet to the area you want to cover
+2. Drag anywhere on the sheet to move it
 3. Drag corners or edges to resize
+4. Press F5 or Space to refresh (re-capture screen)
 
-### Keyboard Shortcut
+### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
 | `Ctrl+Shift+E` | Toggle sheet visibility |
-
-Customizable in settings.
-
-### Toolbar
-
-The toolbar at the bottom of the sheet window provides all controls:
-
-| Button | Action |
-|--------|--------|
-| Switch to Erase Mode / Switch to Sheet Mode | Toggle mode |
-| 🖥 Full Screen | Select monitor and go full screen |
-| 📷 Save | Export color-erased image of the sheet area |
-| ⚙ | Open settings |
-| ✕ | Hide sheet (minimize to tray) |
+| `F5` / `Space` | Refresh (re-capture screen) |
+| `Escape` | Exit full screen mode |
 
 ### Mode Comparison
 
 **Sheet Mode (Default)**
 
-A colored semi-transparent window overlays your screen. Text of the same color blends in and becomes invisible — just like a physical red study sheet.
+Uses **multiply blend** — the same physics as a real colored filter sheet. Captures the screen and applies a color filter. Red text blends into the red background and becomes invisible.
 
 **Erase Mode**
 
-Captures the screen area under the sheet, detects target-colored pixels, and replaces them with neighboring colors for complete removal.
+Detects target-colored pixels and replaces them with surrounding background colors. Choose from 3 algorithms:
+
+| Algorithm | Characteristics | Best For |
+|---|---|---|
+| **Chroma Key** (default) | CIE Lab + soft alpha blending + despill | Anti-aliased text, gradients |
+| **Lab Mask** | CIE Lab + binary mask + dilation + median replacement | Solid fills, bold text, sharp edges |
+| **YCbCr** | Broadcast-standard YCbCr + soft alpha blending | Fast processing, wide color range |
+
+### Toolbar
+
+| Button | Action |
+|--------|--------|
+| Switch to Erase / Switch to Sheet | Toggle mode |
+| Full Screen | Select monitor and go full screen |
+| Save | Export color-erased image of the sheet area |
+| Settings | Open settings |
+| X (top-right) | Hide sheet (minimize to tray) |
+
+### Settings
+
+Settings are saved automatically as JSON in the same folder as `Veilr.exe`.
+
+Key settings include:
+
+- **Sheet color** — Color picker, eyedropper, or HEX input
+- **Sheet opacity** — Blend strength for sheet mode
+- **Erase algorithm** — Chroma Key / Lab Mask / YCbCr
+- **Erase tolerance** — Strict to flexible slider
+- **Update interval** — Processing interval for erase mode (100-500ms)
+- **Keyboard shortcut** — Customizable
+- **UI language** — Japanese / English (app restarts on change)
+
+## Technical Details
+
+### Sheet Mode Physics
+
+Not a simple semi-transparent overlay. Uses **multiply blend** — the same principle as a physical colored filter. Passes only the sheet color's light component, absorbing everything else.
+
+```
+result.R = pixel.R * sheet.R / 255
+result.G = pixel.G * sheet.G / 255
+result.B = pixel.B * sheet.B / 255
+```
+
+### Erase Mode Algorithm
+
+Color detection uses **CIE Lab color space**. Unlike HSV, black and red don't share the same hue value.
+
+- **Chrominance distance** for detecting same-color family
+- **Color family auto-expansion** — Lab hue angle ±10° for automatic variant detection
+- **Chroma key soft alpha** — continuous 0.0-1.0 values for smooth edges
+- **Graduated despill** — distance-based color cast removal at erase boundaries
+- **Median background estimation** — outlier-resistant replacement color calculation
+
+See [docs/algorithm.md](docs/algorithm.md) for details.
 
 ## Building from Source
 
@@ -111,37 +152,28 @@ release.bat      # Release build (outputs dist/Veilr.exe)
 
 > Visual Studio GUI is not required. Develop with VS Code + C# Dev Kit extension, or any editor of your choice.
 
-## Configuration
-
-Settings are saved automatically as JSON in the same folder as `Veilr.exe`.
-
-Key settings include:
-
-- Target color and HSV threshold
-- Sheet color and opacity
-- Erase mode update interval
-- Theme (dark / light) and accent color
-- UI language (Japanese / English)
-- Keyboard shortcut
-- Session restore preferences
-
 ## Project Structure
 
 ```
 Veilr/
-├── README.md               (Japanese)
-├── README.en.md            (English)
+├── README.md / README.en.md
 ├── LICENSE
 ├── setup.bat / build.bat / release.bat / ...
 ├── .github/workflows/build.yml
-├── src/Veilr/
-│   ├── Views/              (SheetWindow, SettingsWindow, ...)
-│   ├── ViewModels/         (SheetViewModel, SettingsViewModel)
-│   ├── Services/           (ScreenCapture, ColorDetector, ...)
-│   ├── Helpers/            (Win32Interop, HsvConverter)
-│   ├── Localization/       (Strings.ja.resx, Strings.en.resx)
-│   └── Resources/          (Themes, Styles)
-└── docs/                   (Specifications, UI Design)
+├── dist/Veilr.exe              (self-contained single exe)
+├── docs/
+│   ├── spec.md                 (Specification)
+│   ├── ui-design.md            (UI Design)
+│   ├── algorithm.md            (Algorithm Specification)
+│   └── improvement-backlog.md  (Improvement Backlog)
+└── src/Veilr/
+    ├── Views/          (SheetWindow, SettingsWindow, ColorPickerWindow, EyedropperOverlay)
+    ├── ViewModels/     (SheetViewModel, SettingsViewModel)
+    ├── Services/       (ScreenCapture, ColorDetector, HotkeyService, SettingsService)
+    ├── Helpers/        (Win32Interop, HsvConverter, Loc)
+    ├── Models/         (AppSettings, ColorTarget)
+    ├── Localization/   (Strings.ja.resx, Strings.en.resx)
+    └── Resources/      (Themes, Icons)
 ```
 
 ## License
