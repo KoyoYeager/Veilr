@@ -2,13 +2,15 @@ using System.Runtime.InteropServices;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
+using Vortice.Mathematics;
 using static Vortice.Direct3D11.D3D11;
 
 namespace Veilr.Services;
 
 /// <summary>
 /// GPU-accelerated screen capture via DXGI Desktop Duplication.
-/// Falls back to GDI CopyFromScreen if DXGI init fails.
+/// Uses CopySubresourceRegion to transfer only the needed window region.
+/// Falls back to GDI if DXGI init fails.
 /// </summary>
 public class DxgiCaptureService : IDisposable
 {
@@ -17,7 +19,9 @@ public class DxgiCaptureService : IDisposable
     private IDXGIOutputDuplication? _duplication;
     private ID3D11Texture2D? _staging;
     private int _screenW, _screenH;
+    private int _stagingW, _stagingH;
     private bool _initialized, _failed;
+    private bool _lastFrameValid; // true if previous AcquireNextFrame succeeded
 
     private readonly ScreenCaptureService _gdiFallback = new();
 
@@ -30,52 +34,27 @@ public class DxgiCaptureService : IDisposable
 
         try
         {
-            // Create D3D11 device with default adapter
             D3D11CreateDevice(
-                null,
-                DriverType.Hardware,
-                DeviceCreationFlags.BgraSupport,
-                null,
-                out _device,
-                out _context);
+                null, DriverType.Hardware, DeviceCreationFlags.BgraSupport,
+                null, out _device, out _context);
 
             if (_device == null) { _failed = true; return false; }
 
-            // Walk: Device → DXGIDevice → Adapter → Output → Output1
             using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
             using var adapter = dxgiDevice.GetAdapter();
 
-            // EnumOutputs: try out-parameter pattern
-            IDXGIOutput? output = null;
-            var hr = adapter.EnumOutputs(0, out output);
+            var hr = adapter.EnumOutputs(0, out var output);
             if (hr.Failure || output == null) { _failed = true; return false; }
 
             using (output)
             {
-                // Get screen dimensions from output description
-                var outDesc = output.Description;
-                var bounds = outDesc.DesktopCoordinates;
+                var bounds = output.Description.DesktopCoordinates;
                 _screenW = bounds.Right - bounds.Left;
                 _screenH = bounds.Bottom - bounds.Top;
 
                 using var output1 = output.QueryInterface<IDXGIOutput1>();
                 _duplication = output1.DuplicateOutput(_device);
             }
-
-            // Staging texture for CPU readback
-            _staging = _device.CreateTexture2D(new Texture2DDescription
-            {
-                Width = (uint)_screenW,
-                Height = (uint)_screenH,
-                MipLevels = 1,
-                ArraySize = 1,
-                Format = Format.B8G8R8A8_UNorm,
-                SampleDescription = new SampleDescription(1, 0),
-                Usage = ResourceUsage.Staging,
-                CPUAccessFlags = CpuAccessFlags.Read,
-                BindFlags = BindFlags.None
-            });
-
             return true;
         }
         catch
@@ -87,46 +66,95 @@ public class DxgiCaptureService : IDisposable
     }
 
     /// <summary>
-    /// Capture a screen region directly into a byte array via DXGI.
-    /// Returns true on success, false → caller should use GDI fallback.
+    /// Ensure staging texture matches the requested region size.
+    /// Only recreate when dimensions change.
+    /// </summary>
+    private void EnsureStaging(int w, int h)
+    {
+        if (w == _stagingW && h == _stagingH && _staging != null) return;
+        _staging?.Dispose();
+        _staging = _device!.CreateTexture2D(new Texture2DDescription
+        {
+            Width = (uint)w,
+            Height = (uint)h,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = Format.B8G8R8A8_UNorm,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Staging,
+            CPUAccessFlags = CpuAccessFlags.Read,
+            BindFlags = BindFlags.None
+        });
+        _stagingW = w;
+        _stagingH = h;
+    }
+
+    /// <summary>
+    /// Capture a screen region into byte array via DXGI.
+    /// Uses CopySubresourceRegion for minimal GPU→CPU transfer.
+    /// Returns true on success.
     /// </summary>
     public bool TryCaptureRegion(int x, int y, int w, int h, byte[] dst, int stride)
     {
-        if (_failed || _duplication == null || _context == null || _staging == null)
+        if (_failed || _duplication == null || _context == null || _device == null)
             return false;
 
         try
         {
-            // AcquireNextFrame: timeout 0 = return immediately
-            var hr = _duplication.AcquireNextFrame(0,
-                out _, out var resource);
+            // Clamp to screen bounds
+            if (x < 0) { w += x; x = 0; }
+            if (y < 0) { h += y; y = 0; }
+            if (x + w > _screenW) w = _screenW - x;
+            if (y + h > _screenH) h = _screenH - y;
+            if (w <= 0 || h <= 0) return false;
+
+            // AcquireNextFrame: timeout 0ms = non-blocking
+            var hr = _duplication.AcquireNextFrame(0, out _, out var resource);
 
             if (hr.Failure || resource == null)
-                return false; // no new frame — screen hasn't changed
+            {
+                // No new frame — if we have a valid last frame, skip capture
+                // (caller reuses previous buffer content)
+                return _lastFrameValid;
+            }
 
             try
             {
-                using var tex = resource.QueryInterface<ID3D11Texture2D>();
-                _context.CopyResource(_staging, tex);
+                using var srcTex = resource.QueryInterface<ID3D11Texture2D>();
+                EnsureStaging(w, h);
 
-                var mapped = _context.Map(_staging, 0, MapMode.Read);
+                // Copy ONLY the window region (not the whole screen)
+                _context.CopySubresourceRegion(
+                    _staging!, 0, 0, 0, 0,   // dst: staging texture at (0,0)
+                    srcTex, 0,                 // src: desktop texture
+                    new Box(x, y, 0, x + w, y + h, 1));  // src region
+
+                // Map staging → CPU read
+                var mapped = _context.Map(_staging!, 0, MapMode.Read);
                 try
                 {
                     int srcPitch = (int)mapped.RowPitch;
                     int copyBytes = w * 4;
 
-                    for (int row = 0; row < h; row++)
+                    if (srcPitch == stride)
                     {
-                        int srcOff = (y + row) * srcPitch + x * 4;
-                        int dstOff = row * stride;
-                        if (srcOff + copyBytes <= srcPitch * _screenH
-                            && dstOff + copyBytes <= dst.Length)
+                        // Pitch matches stride — single bulk copy
+                        Marshal.Copy(mapped.DataPointer, dst, 0, Math.Min(stride * h, dst.Length));
+                    }
+                    else
+                    {
+                        // Row-by-row copy (different alignment)
+                        for (int row = 0; row < h; row++)
                         {
-                            Marshal.Copy(mapped.DataPointer + srcOff, dst, dstOff, copyBytes);
+                            Marshal.Copy(
+                                mapped.DataPointer + row * srcPitch,
+                                dst, row * stride, copyBytes);
                         }
                     }
                 }
-                finally { _context.Unmap(_staging, 0); }
+                finally { _context.Unmap(_staging!, 0); }
+
+                _lastFrameValid = true;
             }
             finally
             {
@@ -137,6 +165,7 @@ public class DxgiCaptureService : IDisposable
         }
         catch
         {
+            _lastFrameValid = false;
             return false;
         }
     }
@@ -148,7 +177,6 @@ public class DxgiCaptureService : IDisposable
             && TryCaptureRegion(x, y, buf.Width, buf.Height, buf.Src, buf.Stride))
             return;
 
-        // GDI fallback
         buf.CaptureAndCopyPixels(_gdiFallback, x, y);
     }
 
