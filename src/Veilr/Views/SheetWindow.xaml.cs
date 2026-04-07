@@ -294,25 +294,35 @@ public partial class SheetWindow : Window
 
     // ── Triggers ───────────────────────────────────────────────
 
-    // ── Non-blocking drag (DragMove blocks UI thread → replaced) ──
+    // ── Non-blocking drag ───────────────────────────────────────
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT pt);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
+
     private bool _isDragging;
-    private System.Windows.Point _dragStartScreen;
+    private POINT _dragStartCursor;
+    private double _dragStartLeft, _dragStartTop;
 
     private void DragBar_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
         _isDragging = true;
-        _dragStartScreen = PointToScreen(e.GetPosition(this));
+        GetCursorPos(out _dragStartCursor);
+        _dragStartLeft = Left;
+        _dragStartTop = Top;
         ((UIElement)sender).CaptureMouse();
     }
 
     private void DragBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_isDragging) return;
-        var current = PointToScreen(e.GetPosition(this));
-        Left += current.X - _dragStartScreen.X;
-        Top += current.Y - _dragStartScreen.Y;
-        _dragStartScreen = current;
+        GetCursorPos(out var cursor);
+        double dpi;
+        try { dpi = GetDpiForSystem() / 96.0; } catch { dpi = 1.0; }
+        Left = _dragStartLeft + (cursor.X - _dragStartCursor.X) / dpi;
+        Top = _dragStartTop + (cursor.Y - _dragStartCursor.Y) / dpi;
     }
 
     private void DragBar_MouseUp(object sender, MouseButtonEventArgs e)
