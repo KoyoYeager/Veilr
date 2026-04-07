@@ -20,6 +20,7 @@ public partial class SheetWindow : Window
     private readonly SheetViewModel _viewModel;
     private readonly SettingsService _settingsService;
     private readonly ScreenCaptureService _captureService = new();
+    private readonly DxgiCaptureService _dxgiCapture = new();
     private readonly ColorDetectorService _detectorService = new();
 
     // Debounce timer for resize
@@ -133,8 +134,8 @@ public partial class SheetWindow : Window
 
     private void CaptureLoop()
     {
-        // Save first captured frame for WDA verification
-        bool savedDebugFrame = false;
+        // Initialize DXGI (GPU capture)
+        _dxgiCapture.TryInitialize();
 
         while (_captureRunning)
         {
@@ -148,11 +149,10 @@ public partial class SheetWindow : Window
             }
 
             _oneshotRequested = false;
+            _profSw.Restart();
 
             try
             {
-                _profSw.Restart();
-
                 GetWindowRect(_hwndCache, out RECT wr);
                 int x = wr.Left, y = wr.Top;
                 int w = wr.Right - wr.Left, h = wr.Bottom - wr.Top;
@@ -161,37 +161,10 @@ public partial class SheetWindow : Window
                 int stride = w * 4;
                 _back.EnsureCapacity(w, h, stride);
 
-                // --- Capture ---
+                // --- Capture (DXGI with GDI fallback) ---
                 long t0 = _profSw.ElapsedTicks;
-                _back.CaptureAndCopyPixels(_captureService, x, y);
+                _dxgiCapture.CaptureIntoBuffer(_back, x, y);
                 long t1 = _profSw.ElapsedTicks;
-
-                // Verify actual stride matches expected
-                if (!savedDebugFrame && _back.CaptureBitmap != null)
-                {
-                    var dbgData = _back.CaptureBitmap.LockBits(
-                        new Rectangle(0, 0, w, h),
-                        System.Drawing.Imaging.ImageLockMode.ReadOnly,
-                        System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                    int actualStride = dbgData.Stride;
-                    _back.CaptureBitmap.UnlockBits(dbgData);
-
-                    // Save first frame as PNG for visual verification
-                    try
-                    {
-                        string dbgPath = Path.Combine(
-                            AppDomain.CurrentDomain.BaseDirectory, "debug-capture.png");
-                        _back.CaptureBitmap.Save(dbgPath, System.Drawing.Imaging.ImageFormat.Png);
-                        _profLog.Add($"DEBUG: First frame saved to {dbgPath}");
-                        _profLog.Add($"DEBUG: Expected stride={stride}, Actual stride={actualStride}");
-                        _profLog.Add($"DEBUG: WDA_EXCLUDEFROMCAPTURE = {_affinitySet}");
-                        // Check if first pixel is black (WDA failure indicator)
-                        byte b0 = _back.Src[0], g0 = _back.Src[1], r0 = _back.Src[2];
-                        _profLog.Add($"DEBUG: First pixel RGB=({r0},{g0},{b0})");
-                    }
-                    catch { /* ignore */ }
-                    savedDebugFrame = true;
-                }
 
                 // --- Process ---
                 var settings = _settingsService.Settings;
@@ -225,7 +198,7 @@ public partial class SheetWindow : Window
                     _profLog.Add($"Frame {_profFrameCount:D3}  " +
                         $"Capture:{capMs,6:F1}ms  Process:{procMs,6:F1}ms  " +
                         $"Swap:{swapMs,5:F1}ms  Total:{totalMs,6:F1}ms  " +
-                        $"Size:{w}x{h}  Mode:{(isErase ? "erase" : "sheet")}");
+                        $"Size:{w}x{h}  DXGI:{_dxgiCapture.IsUsingDxgi}");
                     _profFrameCount++;
 
                     if (_profFrameCount == PROF_MAX_FRAMES)
@@ -238,11 +211,14 @@ public partial class SheetWindow : Window
                     _profLog.Add($"ERROR: {ex.Message}");
             }
 
-            if (!_settingsService.Settings.AutoRefreshEnabled)
-                continue;
+            if (!autoEnabled) continue;
 
+            // Accurate frame rate control: sleep only the remaining time
+            _profSw.Stop();
             int interval = _settingsService.Settings.UpdateIntervalMs;
-            Thread.Sleep(interval);
+            int elapsed = (int)_profSw.ElapsedMilliseconds;
+            int remaining = interval - elapsed;
+            if (remaining > 1) Thread.Sleep(remaining);
         }
     }
 
@@ -256,6 +232,7 @@ public partial class SheetWindow : Window
                 $"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
                 $"Window: {w}x{h}",
                 $"WDA_EXCLUDEFROMCAPTURE: {_affinitySet}",
+                $"DXGI Desktop Duplication: {_dxgiCapture.IsUsingDxgi}",
                 $"AutoRefresh: {_settingsService.Settings.AutoRefreshEnabled}",
                 $"Interval: {_settingsService.Settings.UpdateIntervalMs}ms",
                 $"Render frames: {_renderCount}, avg: {(_renderCount > 0 ? _renderTotalMs / _renderCount : 0):F2}ms",
@@ -443,6 +420,7 @@ public partial class SheetWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         StopCaptureThread();
+        _dxgiCapture.Dispose();
         CompositionTarget.Rendering -= OnRendering;
         SavePosition();
         base.OnClosed(e);
