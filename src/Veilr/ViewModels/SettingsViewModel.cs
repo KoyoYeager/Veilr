@@ -19,6 +19,7 @@ public class SettingsViewModel : INotifyPropertyChanged
 
     // Behavior
     private int _updateIntervalMs;
+    private bool _autoRefreshEnabled;
 
     // Appearance
     private string _language = "ja";
@@ -27,6 +28,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     private int _initR, _initG, _initB;
     private double _initOpacity;
     private int _initTolerance, _initInterval, _initAlgorithm;
+    private bool _initAutoRefresh;
     private string _initLanguage = "ja", _initHotkey = "ctrl+shift+e";
 
     // Hotkey
@@ -61,6 +63,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         };
 
         _updateIntervalMs = s.UpdateIntervalMs;
+        _autoRefreshEnabled = s.AutoRefreshEnabled;
 
         _language = s.UiTheme.Language;
         _hotkeyToggleSheet = s.Hotkeys.ToggleSheet;
@@ -69,6 +72,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _initR = _colorR; _initG = _colorG; _initB = _colorB;
         _initOpacity = _opacity; _initTolerance = _tolerance;
         _initInterval = _updateIntervalMs;
+        _initAutoRefresh = _autoRefreshEnabled;
         _initAlgorithm = _eraseAlgorithmIndex;
         _initLanguage = _language; _initHotkey = _hotkeyToggleSheet;
     }
@@ -141,11 +145,17 @@ public class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Behavior ---
+    public bool AutoRefreshEnabled
+    {
+        get => _autoRefreshEnabled;
+        set { _autoRefreshEnabled = value; OnPropertyChanged(nameof(AutoRefreshEnabled)); }
+    }
     public int UpdateIntervalMs
     {
         get => _updateIntervalMs;
-        set { _updateIntervalMs = Math.Clamp(value, 100, 500); OnPropertyChanged(nameof(UpdateIntervalMs)); }
+        set { _updateIntervalMs = Math.Clamp(value, 16, 500); OnPropertyChanged(nameof(UpdateIntervalMs)); OnPropertyChanged(nameof(UpdateIntervalDisplay)); }
     }
+    public string UpdateIntervalDisplay => $"{_updateIntervalMs}ms ({1000 / _updateIntervalMs}fps)";
 
     // --- Appearance ---
     public string Language { get => _language; set { _language = value; OnPropertyChanged(nameof(Language)); OnPropertyChanged(nameof(LanguageIndex)); } }
@@ -158,6 +168,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _colorR != _initR || _colorG != _initG || _colorB != _initB
         || _opacity != _initOpacity || _tolerance != _initTolerance
         || _updateIntervalMs != _initInterval
+        || _autoRefreshEnabled != _initAutoRefresh
         || _eraseAlgorithmIndex != _initAlgorithm
         || _language != _initLanguage || _hotkeyToggleSheet != _initHotkey;
 
@@ -192,6 +203,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         };
 
         s.UpdateIntervalMs = _updateIntervalMs;
+        s.AutoRefreshEnabled = _autoRefreshEnabled;
         s.UiTheme.Language = _language;
         s.Hotkeys.ToggleSheet = _hotkeyToggleSheet;
 

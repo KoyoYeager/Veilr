@@ -25,6 +25,10 @@ public partial class SheetWindow : Window
     // Debounce timer for resize
     private DispatcherTimer? _resizeDebounce;
 
+    // Auto-refresh
+    private DispatcherTimer? _autoRefreshTimer;
+    private bool _isCapturing;
+
     public SheetWindow(SettingsService settingsService)
     {
         InitializeComponent();
@@ -43,7 +47,45 @@ public partial class SheetWindow : Window
         }
 
         Loaded += (_, _) => Dispatcher.BeginInvoke(CaptureAndProcess, DispatcherPriority.Background);
+        IsVisibleChanged += OnIsVisibleChanged;
         SizeChanged += OnSizeChanged;
+    }
+
+    // ── Recapture when window becomes visible again ───────────
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true)
+        {
+            Dispatcher.BeginInvoke(CaptureAndProcess, DispatcherPriority.Background);
+            StartAutoRefreshIfEnabled();
+        }
+        else
+        {
+            StopAutoRefresh();
+        }
+    }
+
+    // ── Auto-refresh timer ────────────────────────────────────
+    public void StartAutoRefreshIfEnabled()
+    {
+        StopAutoRefresh();
+        if (!_settingsService.Settings.AutoRefreshEnabled) return;
+
+        _autoRefreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(_settingsService.Settings.UpdateIntervalMs)
+        };
+        _autoRefreshTimer.Tick += (_, _) =>
+        {
+            if (!_isCapturing) CaptureAndProcess();
+        };
+        _autoRefreshTimer.Start();
+    }
+
+    private void StopAutoRefresh()
+    {
+        _autoRefreshTimer?.Stop();
+        _autoRefreshTimer = null;
     }
 
     // ── Single-shot capture & process (no flickering) ──────────
@@ -51,14 +93,35 @@ public partial class SheetWindow : Window
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetWindowDisplayAffinity(nint hWnd, uint dwAffinity);
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
 
+    private bool _affinitySet;
+
+    /// <summary>
+    /// Set WDA_EXCLUDEFROMCAPTURE so CopyFromScreen ignores this window.
+    /// No more hide/show flicker. Requires Win10 2004+.
+    /// </summary>
+    private void EnsureExcludeFromCapture()
+    {
+        if (_affinitySet) return;
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd != nint.Zero)
+        {
+            _affinitySet = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+        }
+    }
+
     private async void CaptureAndProcess()
     {
+        if (_isCapturing) return;
+        _isCapturing = true;
         try
         {
-            // Use Win32 GetWindowRect for exact physical pixel coordinates
             var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             GetWindowRect(hwnd, out RECT wr);
 
@@ -67,38 +130,58 @@ public partial class SheetWindow : Window
             int barTop = (int)(24 * dpi);
             int barBottom = (int)(32 * dpi);
 
-            // Always capture full window area (both modes)
             int x = wr.Left;
             int y = wr.Top;
             int w = wr.Right - wr.Left;
             int h = wr.Bottom - wr.Top;
             if (w <= 0 || h <= 0) return;
 
-            Opacity = 0;
-            await Task.Delay(50);
+            EnsureExcludeFromCapture();
 
-            using var captured = _captureService.CaptureRegion(x, y, w, h);
-
-            Opacity = 1;
-
-            Bitmap processed;
-            if (_viewModel.IsEraseMode)
+            Bitmap captured;
+            if (_affinitySet)
             {
-                processed = _detectorService.EraseColor(captured, _settingsService.Settings.TargetColor);
+                // Window is excluded from capture — no need to hide
+                captured = _captureService.CaptureRegion(x, y, w, h);
             }
             else
             {
-                processed = _detectorService.MultiplyBlend(
-                    captured,
-                    _settingsService.Settings.OverlayColor.Rgb);
+                // Fallback: hide briefly (older Windows)
+                Opacity = 0;
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+                await Task.Delay(16);
+                captured = _captureService.CaptureRegion(x, y, w, h);
+                Opacity = 1;
             }
 
-            using (processed)
-                _viewModel.ProcessedImageSource = ConvertBitmap(processed);
+            // Process on background thread to avoid UI freeze
+            var settings = _settingsService.Settings;
+            var isErase = _viewModel.IsEraseMode;
+            var targetColor = settings.TargetColor;
+            var overlayRgb = settings.OverlayColor.Rgb;
+
+            var result = await Task.Run(() =>
+            {
+                Bitmap processed;
+                if (isErase)
+                    processed = _detectorService.EraseColor(captured, targetColor);
+                else
+                    processed = _detectorService.MultiplyBlend(captured, overlayRgb);
+                var source = ConvertBitmap(processed);
+                processed.Dispose();
+                captured.Dispose();
+                return source;
+            });
+
+            _viewModel.ProcessedImageSource = result;
         }
         catch
         {
-            Opacity = 1;
+            if (!_affinitySet) Opacity = 1;
+        }
+        finally
+        {
+            _isCapturing = false;
         }
     }
 
@@ -156,12 +239,16 @@ public partial class SheetWindow : Window
             int h = (ewr.Bottom - ewr.Top) - (int)(24 * edpi) - (int)(32 * edpi);
             if (w <= 0 || h <= 0) return;
 
-            Opacity = 0;
-            UpdateLayout();
-            System.Threading.Thread.Sleep(50);
+            EnsureExcludeFromCapture();
+            if (!_affinitySet)
+            {
+                Opacity = 0;
+                UpdateLayout();
+                System.Threading.Thread.Sleep(16);
+            }
 
             using var captured = _captureService.CaptureRegion(x, y, w, h);
-            Opacity = 1;
+            if (!_affinitySet) Opacity = 1;
 
             using var processed = _detectorService.EraseColor(captured, _settingsService.Settings.TargetColor);
 
@@ -199,12 +286,14 @@ public partial class SheetWindow : Window
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
+        StopAutoRefresh();
         var settingsWindow = new SettingsWindow(_settingsService);
         settingsWindow.Owner = this;
         settingsWindow.Topmost = true;
         settingsWindow.ShowDialog();
         _viewModel.RefreshFromSettings();
         CaptureAndProcess();
+        StartAutoRefreshIfEnabled();
     }
 
     private void BtnClose_Click(object sender, RoutedEventArgs e)

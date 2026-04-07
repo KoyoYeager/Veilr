@@ -98,21 +98,24 @@
             <TabItem x:Name="Tab2">
                 <StackPanel Margin="12">
                     <TextBlock x:Name="LblEraseSettings" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,12"/>
+
+                    <!-- Auto-refresh toggle -->
+                    <CheckBox x:Name="ChkAutoRefresh" IsChecked="{Binding AutoRefreshEnabled}"
+                              Margin="0,0,0,4" FontSize="13"/>
+                    <TextBlock x:Name="LblAutoRefreshDesc" FontSize="11" Foreground="Gray" Margin="20,0,0,12"/>
+
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="80"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="100"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="LblUpdateRate" VerticalAlignment="Center"/>
-                        <Slider Grid.Column="1" Minimum="100" Maximum="500"
+                        <Slider Grid.Column="1" Minimum="16" Maximum="500"
                                 Value="{Binding UpdateIntervalMs}" VerticalAlignment="Center"
-                                TickFrequency="50" IsSnapToTickEnabled="True"/>
-                        <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
-                            <TextBlock.Text>
-                                <Binding Path="UpdateIntervalMs" StringFormat="{}{0}ms"/>
-                            </TextBlock.Text>
-                        </TextBlock>
+                                TickFrequency="16" IsSnapToTickEnabled="True"/>
+                        <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Text="{Binding UpdateIntervalDisplay}" FontSize="11"/>
                     </Grid>
                     <TextBlock x:Name="LblUpdateRateDesc" FontSize="11" Foreground="Gray" Margin="0,4,0,0"/>
                 </StackPanel>

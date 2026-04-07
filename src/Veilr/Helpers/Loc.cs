@@ -48,10 +48,14 @@ public static class Loc
         : "放送業界標準。輝度に依存しないCbCr平面でのキーイング。高速で堅牢。";
 
     public static string EraseSettings => _lang == "en" ? "Erase mode settings" : "消去モード設定";
+    public static string AutoRefresh => _lang == "en" ? "Auto refresh" : "自動更新";
+    public static string AutoRefreshDesc => _lang == "en"
+        ? "Periodically recapture the screen at the specified interval"
+        : "指定した間隔で画面を自動的に再キャプチャします";
     public static string UpdateFrequency => _lang == "en" ? "Update rate:" : "更新頻度:";
     public static string UpdateFrequencyDesc => _lang == "en"
-        ? "Lower values are smoother but use more CPU"
-        : "値が小さいほど滑らかですが、CPU負荷が増加します";
+        ? "16ms ≈ 60fps (real-time video), 100ms ≈ 10fps, 500ms ≈ 2fps. Lower values use more CPU."
+        : "16ms ≈ 60fps（動画対応）、100ms ≈ 10fps、500ms ≈ 2fps。値が小さいほどCPU負荷が増加します";
 
     public static string HotkeySettings => _lang == "en" ? "Keyboard shortcut" : "ショートカットキー設定";
     public static string ToggleSheet => _lang == "en" ? "Toggle sheet:" : "シート表示/非表示:";

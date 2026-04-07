@@ -43,6 +43,8 @@ public partial class SettingsWindow : Window
         LblFlexible.Text = Loc.Flexible;
 
         LblEraseSettings.Text = Loc.EraseSettings;
+        ChkAutoRefresh.Content = Loc.AutoRefresh;
+        LblAutoRefreshDesc.Text = Loc.AutoRefreshDesc;
         LblUpdateRate.Text = Loc.UpdateFrequency;
         LblUpdateRateDesc.Text = Loc.UpdateFrequencyDesc;
 

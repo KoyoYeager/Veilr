@@ -10,6 +10,7 @@ public class AppSettings
     public ColorSettings TargetColor { get; set; } = new();
     public OverlayColorSettings OverlayColor { get; set; } = new();
     public int UpdateIntervalMs { get; set; } = 200;
+    public bool AutoRefreshEnabled { get; set; } = false;
     public HotkeySettings Hotkeys { get; set; } = new();
     public ThemeSettings UiTheme { get; set; } = new();
 
