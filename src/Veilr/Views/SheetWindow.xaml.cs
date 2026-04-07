@@ -294,13 +294,33 @@ public partial class SheetWindow : Window
 
     // ── Triggers ───────────────────────────────────────────────
 
+    // ── Non-blocking drag (DragMove blocks UI thread → replaced) ──
+    private bool _isDragging;
+    private System.Windows.Point _dragStartScreen;
+
     private void DragBar_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
-        {
-            DragMove();
-            RequestCapture();
-        }
+        if (e.ChangedButton != MouseButton.Left) return;
+        _isDragging = true;
+        _dragStartScreen = PointToScreen(e.GetPosition(this));
+        ((UIElement)sender).CaptureMouse();
+    }
+
+    private void DragBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_isDragging) return;
+        var current = PointToScreen(e.GetPosition(this));
+        Left += current.X - _dragStartScreen.X;
+        Top += current.Y - _dragStartScreen.Y;
+        _dragStartScreen = current;
+    }
+
+    private void DragBar_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isDragging) return;
+        _isDragging = false;
+        ((UIElement)sender).ReleaseMouseCapture();
+        RequestCapture();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)

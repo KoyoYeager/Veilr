@@ -15,7 +15,9 @@
             Background="{Binding SheetBrush}"
             BorderThickness="{Binding WindowBorderThickness}"
             BorderBrush="{Binding WindowBorderBrush}"
-            MouseLeftButtonDown="DragBar_MouseDown">
+            MouseLeftButtonDown="DragBar_MouseDown"
+            MouseMove="DragBar_MouseMove"
+            MouseLeftButtonUp="DragBar_MouseUp">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="24"/>
