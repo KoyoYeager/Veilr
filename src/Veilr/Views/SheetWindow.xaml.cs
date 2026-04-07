@@ -98,7 +98,8 @@ public partial class SheetWindow : Window
             _writeableBitmap.Unlock();
         }
         sw.Stop();
-        _frameReady = false;
+        // Don't reset _frameReady — let capture thread overwrite freely.
+        // UI always displays the latest available frame.
 
         _renderCount++;
         _renderTotalMs += sw.Elapsed.TotalMilliseconds;
@@ -144,9 +145,9 @@ public partial class SheetWindow : Window
             bool autoEnabled = _settingsService.Settings.AutoRefreshEnabled;
             bool shouldCapture = _oneshotRequested || autoEnabled;
 
-            if (!shouldCapture || _frameReady)
+            if (!shouldCapture)
             {
-                Thread.SpinWait(100); // Don't use Thread.Sleep here — too imprecise
+                Thread.SpinWait(100);
                 continue;
             }
 
@@ -180,14 +181,14 @@ public partial class SheetWindow : Window
                     _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
                 long t3 = _profSw.ElapsedTicks;
 
-                // --- Swap ---
+                // --- Swap (overwrite front buffer — UI picks up latest) ---
                 lock (_swapLock)
                 {
                     _front.EnsureCapacity(w, h, stride);
                     Buffer.BlockCopy(_back.Dst, 0, _front.Dst, 0, _back.ByteCount);
+                    _frameReady = true; // signal inside lock to avoid race
                 }
                 long t4 = _profSw.ElapsedTicks;
-                _frameReady = true;
 
                 // --- Log ---
                 double freq = System.Diagnostics.Stopwatch.Frequency;
