@@ -18,6 +18,9 @@ public class FrameBuffer
     public int[] NearestClean = [];
     public Queue<int> BfsQueue = new();
 
+    /// <summary>Screen position where this frame was captured.</summary>
+    public int CaptureX, CaptureY;
+
     /// <summary>Pre-allocated capture Bitmap (reused across frames).</summary>
     public Bitmap? CaptureBitmap;
 

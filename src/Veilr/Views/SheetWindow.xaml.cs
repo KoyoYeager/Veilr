@@ -36,6 +36,7 @@ public partial class SheetWindow : Window
     private volatile bool _frameReady;
     private WriteableBitmap? _writeableBitmap;
     private nint _hwndCache;
+    private TranslateTransform _imageTranslate = null!; // set in OnLoaded
 
     public SheetWindow(SettingsService settingsService)
     {
@@ -65,6 +66,7 @@ public partial class SheetWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _hwndCache = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        _imageTranslate = (TranslateTransform)ProcessedImage.RenderTransform;
         EnsureExcludeFromCapture();
         RequestCapture();
         StartCaptureThreadIfEnabled();
@@ -96,10 +98,24 @@ public partial class SheetWindow : Window
             Marshal.Copy(_front.Dst, 0, _writeableBitmap.BackBuffer, _front.ByteCount);
             _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
             _writeableBitmap.Unlock();
+
+            // Offset compensation: shift image to match capture position vs current position
+            // This eliminates the visual "lag" during drag
+            if (_isDragging)
+            {
+                GetWindowRect(_hwndCache, out RECT nowR);
+                double dipDpi;
+                try { dipDpi = GetDpiForSystem() / 96.0; } catch { dipDpi = 1.0; }
+                _imageTranslate.X = (_front.CaptureX - nowR.Left) / dipDpi;
+                _imageTranslate.Y = (_front.CaptureY - nowR.Top) / dipDpi;
+            }
+            else
+            {
+                _imageTranslate.X = 0;
+                _imageTranslate.Y = 0;
+            }
         }
         sw.Stop();
-        // Don't reset _frameReady — let capture thread overwrite freely.
-        // UI always displays the latest available frame.
 
         _renderCount++;
         _renderTotalMs += sw.Elapsed.TotalMilliseconds;
@@ -166,6 +182,8 @@ public partial class SheetWindow : Window
 
                 // --- Capture (DXGI with GDI fallback) ---
                 long t0 = _profSw.ElapsedTicks;
+                _back.CaptureX = x;
+                _back.CaptureY = y;
                 _dxgiCapture.CaptureIntoBuffer(_back, x, y);
                 long t1 = _profSw.ElapsedTicks;
 
@@ -186,7 +204,9 @@ public partial class SheetWindow : Window
                 {
                     _front.EnsureCapacity(w, h, stride);
                     Buffer.BlockCopy(_back.Dst, 0, _front.Dst, 0, _back.ByteCount);
-                    _frameReady = true; // signal inside lock to avoid race
+                    _front.CaptureX = _back.CaptureX;
+                    _front.CaptureY = _back.CaptureY;
+                    _frameReady = true;
                 }
                 long t4 = _profSw.ElapsedTicks;
 
@@ -313,8 +333,6 @@ public partial class SheetWindow : Window
         _dragStartLeft = Left;
         _dragStartTop = Top;
         ((UIElement)sender).CaptureMouse();
-        // Hide processed image during drag — like moving a physical red sheet
-        ProcessedImage.Visibility = Visibility.Hidden;
     }
 
     private void DragBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
@@ -332,7 +350,9 @@ public partial class SheetWindow : Window
         if (!_isDragging) return;
         _isDragging = false;
         ((UIElement)sender).ReleaseMouseCapture();
-        ProcessedImage.Visibility = Visibility.Visible;
+        // Reset image offset and capture at final position
+        _imageTranslate.X = 0;
+        _imageTranslate.Y = 0;
         RequestCapture();
     }
 
