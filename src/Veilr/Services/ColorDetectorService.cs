@@ -16,8 +16,10 @@ public class FrameBuffer
     public double[] Alpha = [];
     public byte[] BgR = [], BgG = [], BgB = [];
     public int[] NearestClean = [];
-    // BFS queue — reuse capacity across frames
     public Queue<int> BfsQueue = new();
+
+    /// <summary>Pre-allocated capture Bitmap (reused across frames).</summary>
+    public Bitmap? CaptureBitmap;
 
     public void EnsureCapacity(int w, int h, int stride)
     {
@@ -32,6 +34,20 @@ public class FrameBuffer
         BgG = new byte[PixelCount];
         BgB = new byte[PixelCount];
         NearestClean = new int[PixelCount];
+        CaptureBitmap?.Dispose();
+        CaptureBitmap = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+    }
+
+    /// <summary>Capture screen into this buffer's Bitmap, then copy pixels into Src.</summary>
+    public void CaptureAndCopyPixels(ScreenCaptureService captureService, int x, int y)
+    {
+        if (CaptureBitmap == null) return;
+        captureService.CaptureInto(CaptureBitmap, x, y);
+        var data = CaptureBitmap.LockBits(
+            new Rectangle(0, 0, Width, Height),
+            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        Marshal.Copy(data.Scan0, Src, 0, ByteCount);
+        CaptureBitmap.UnlockBits(data);
     }
 }
 

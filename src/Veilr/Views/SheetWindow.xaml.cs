@@ -25,15 +25,16 @@ public partial class SheetWindow : Window
     // Debounce timer for resize
     private DispatcherTimer? _resizeDebounce;
 
-    // Auto-refresh
-    private DispatcherTimer? _autoRefreshTimer;
-    private bool _isCapturing;
-
-    // Pre-allocated frame buffers (zero GC per frame)
-    private readonly FrameBuffer _frameBuffer = new();
-    private Bitmap? _captureBitmap;
+    // ── Background capture pipeline ──────────────────────────
+    private readonly FrameBuffer _front = new();   // UI reads
+    private readonly FrameBuffer _back = new();    // Capture thread writes
+    private readonly object _swapLock = new();
+    private Thread? _captureThread;
+    private volatile bool _captureRunning;
+    private volatile bool _oneshotRequested;
+    private volatile bool _frameReady;
     private WriteableBitmap? _writeableBitmap;
-    private int _lastCaptureW, _lastCaptureH;
+    private nint _hwndCache;
 
     public SheetWindow(SettingsService settingsService)
     {
@@ -52,160 +53,177 @@ public partial class SheetWindow : Window
             Height = pos.H;
         }
 
-        Loaded += (_, _) => Dispatcher.BeginInvoke(CaptureAndProcess, DispatcherPriority.Background);
+        Loaded += OnLoaded;
         IsVisibleChanged += OnIsVisibleChanged;
         SizeChanged += OnSizeChanged;
+
+        // Register CompositionTarget.Rendering for smooth UI updates
+        CompositionTarget.Rendering += OnRendering;
     }
 
-    // ── Recapture when window becomes visible again ───────────
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        _hwndCache = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        EnsureExcludeFromCapture();
+        RequestCapture();
+        StartCaptureThreadIfEnabled();
+    }
+
+    // ── CompositionTarget.Rendering: UI update (memcpy only, ~0.3ms) ──
+    private void OnRendering(object? sender, EventArgs e)
+    {
+        if (!_frameReady) return;
+
+        lock (_swapLock)
+        {
+            int w = _front.Width, h = _front.Height;
+            if (w <= 0 || h <= 0) return;
+
+            double dpi;
+            try { dpi = GetDpiForSystem(); } catch { dpi = 96; }
+
+            if (_writeableBitmap == null
+                || _writeableBitmap.PixelWidth != w
+                || _writeableBitmap.PixelHeight != h)
+            {
+                _writeableBitmap = new WriteableBitmap(w, h, dpi, dpi, PixelFormats.Bgra32, null);
+                _viewModel.ProcessedImageSource = _writeableBitmap;
+            }
+
+            _writeableBitmap.Lock();
+            Marshal.Copy(_front.Dst, 0, _writeableBitmap.BackBuffer, _front.ByteCount);
+            _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
+            _writeableBitmap.Unlock();
+        }
+        _frameReady = false;
+    }
+
+    // ── Background capture thread ─────────────────────────────
+    private void StartCaptureThreadIfEnabled()
+    {
+        if (_captureThread?.IsAlive == true) return;
+        _captureRunning = true;
+        _captureThread = new Thread(CaptureLoop)
+        {
+            IsBackground = true,
+            Name = "VeilrCapture",
+            Priority = ThreadPriority.BelowNormal
+        };
+        _captureThread.Start();
+    }
+
+    private void StopCaptureThread()
+    {
+        _captureRunning = false;
+        // Thread will exit on its own
+    }
+
+    private void CaptureLoop()
+    {
+        while (_captureRunning)
+        {
+            bool autoEnabled = _settingsService.Settings.AutoRefreshEnabled;
+            bool shouldCapture = _oneshotRequested || autoEnabled;
+
+            if (!shouldCapture || _frameReady)
+            {
+                Thread.Sleep(1);
+                continue;
+            }
+
+            _oneshotRequested = false;
+
+            try
+            {
+                // GetWindowRect is thread-safe (Win32 API)
+                GetWindowRect(_hwndCache, out RECT wr);
+                int x = wr.Left, y = wr.Top;
+                int w = wr.Right - wr.Left, h = wr.Bottom - wr.Top;
+                if (w <= 0 || h <= 0) continue;
+
+                // Use estimated stride (32bpp ARGB, aligned to 4 bytes)
+                int stride = w * 4;
+
+                // Ensure back buffer is sized
+                _back.EnsureCapacity(w, h, stride);
+
+                // Capture + copy pixels (all on this background thread)
+                _back.CaptureAndCopyPixels(_captureService, x, y);
+
+                // Process (uses Parallel.For internally)
+                var settings = _settingsService.Settings;
+                bool isErase;
+                // Read IsEraseMode safely (it's a simple bool)
+                try { isErase = _viewModel.IsEraseMode; } catch { isErase = false; }
+
+                if (isErase)
+                    _detectorService.EraseColorInto(_back, settings.TargetColor);
+                else
+                    _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+
+                // Swap front/back and signal frame ready
+                lock (_swapLock)
+                {
+                    // Copy result to front buffer
+                    _front.EnsureCapacity(w, h, stride);
+                    Buffer.BlockCopy(_back.Dst, 0, _front.Dst, 0, _back.ByteCount);
+                }
+                _frameReady = true;
+            }
+            catch
+            {
+                // Swallow errors in capture thread; next iteration will retry
+            }
+
+            if (!_settingsService.Settings.AutoRefreshEnabled)
+                continue;
+
+            int interval = _settingsService.Settings.UpdateIntervalMs;
+            Thread.Sleep(interval);
+        }
+    }
+
+    /// <summary>Request a single frame capture (non-blocking).</summary>
+    private void RequestCapture()
+    {
+        _oneshotRequested = true;
+        // Ensure capture thread is running
+        if (_captureThread?.IsAlive != true)
+            StartCaptureThreadIfEnabled();
+    }
+
+    // ── Visibility ────────────────────────────────────────────
     private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is true)
         {
-            Dispatcher.BeginInvoke(CaptureAndProcess, DispatcherPriority.Background);
-            StartAutoRefreshIfEnabled();
+            RequestCapture();
+            StartCaptureThreadIfEnabled();
         }
         else
         {
-            StopAutoRefresh();
+            StopCaptureThread();
         }
     }
 
-    // ── Auto-refresh timer ────────────────────────────────────
-    public void StartAutoRefreshIfEnabled()
-    {
-        StopAutoRefresh();
-        if (!_settingsService.Settings.AutoRefreshEnabled) return;
+    // ── WDA_EXCLUDEFROMCAPTURE ────────────────────────────────
 
-        _autoRefreshTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(_settingsService.Settings.UpdateIntervalMs)
-        };
-        _autoRefreshTimer.Tick += (_, _) =>
-        {
-            if (!_isCapturing) CaptureAndProcess();
-        };
-        _autoRefreshTimer.Start();
-    }
-
-    private void StopAutoRefresh()
-    {
-        _autoRefreshTimer?.Stop();
-        _autoRefreshTimer = null;
-    }
-
-    // ── Single-shot capture & process (no flickering) ──────────
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [DllImport("user32.dll")]
     private static extern bool SetWindowDisplayAffinity(nint hWnd, uint dwAffinity);
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
 
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
 
     private bool _affinitySet;
 
-    /// <summary>
-    /// Set WDA_EXCLUDEFROMCAPTURE so CopyFromScreen ignores this window.
-    /// No more hide/show flicker. Requires Win10 2004+.
-    /// </summary>
     private void EnsureExcludeFromCapture()
     {
-        if (_affinitySet) return;
-        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        if (hwnd != nint.Zero)
-        {
-            _affinitySet = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-        }
-    }
-
-    private async void CaptureAndProcess()
-    {
-        if (_isCapturing) return;
-        _isCapturing = true;
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            GetWindowRect(hwnd, out RECT wr);
-
-            double dpi;
-            try { dpi = GetDpiForSystem() / 96.0; } catch { dpi = 1.0; }
-
-            int x = wr.Left;
-            int y = wr.Top;
-            int w = wr.Right - wr.Left;
-            int h = wr.Bottom - wr.Top;
-            if (w <= 0 || h <= 0) return;
-
-            EnsureExcludeFromCapture();
-
-            // Reuse capture bitmap (only allocate on size change)
-            if (_captureBitmap == null || _lastCaptureW != w || _lastCaptureH != h)
-            {
-                _captureBitmap?.Dispose();
-                _captureBitmap = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-                _lastCaptureW = w;
-                _lastCaptureH = h;
-            }
-
-            if (_affinitySet)
-            {
-                _captureService.CaptureInto(_captureBitmap, x, y);
-            }
-            else
-            {
-                Opacity = 0;
-                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-                await Task.Delay(16);
-                _captureService.CaptureInto(_captureBitmap, x, y);
-                Opacity = 1;
-            }
-
-            // Copy pixels into pre-allocated FrameBuffer
-            var srcData = _captureBitmap.LockBits(
-                new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-            int stride = srcData.Stride;
-            _frameBuffer.EnsureCapacity(w, h, stride);
-            Marshal.Copy(srcData.Scan0, _frameBuffer.Src, 0, _frameBuffer.ByteCount);
-            _captureBitmap.UnlockBits(srcData);
-
-            // Process on background thread — zero allocation
-            var settings = _settingsService.Settings;
-            var isErase = _viewModel.IsEraseMode;
-            var targetColor = settings.TargetColor;
-            var overlayRgb = settings.OverlayColor.Rgb;
-            var buf = _frameBuffer;
-
-            await Task.Run(() =>
-            {
-                if (isErase)
-                    _detectorService.EraseColorInto(buf, targetColor);
-                else
-                    _detectorService.MultiplyBlendInto(buf, overlayRgb);
-            });
-
-            // Update WriteableBitmap (fast memcpy, no new BitmapSource)
-            if (_writeableBitmap == null || _writeableBitmap.PixelWidth != w || _writeableBitmap.PixelHeight != h)
-            {
-                _writeableBitmap = new WriteableBitmap(w, h, dpi * 96, dpi * 96, PixelFormats.Bgra32, null);
-                _viewModel.ProcessedImageSource = _writeableBitmap;
-            }
-            _writeableBitmap.Lock();
-            Marshal.Copy(buf.Dst, 0, _writeableBitmap.BackBuffer, buf.ByteCount);
-            _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
-            _writeableBitmap.Unlock();
-        }
-        catch
-        {
-            if (!_affinitySet) Opacity = 1;
-        }
-        finally
-        {
-            _isCapturing = false;
-        }
+        if (_affinitySet || _hwndCache == nint.Zero) return;
+        _affinitySet = SetWindowDisplayAffinity(_hwndCache, WDA_EXCLUDEFROMCAPTURE);
     }
 
     // ── Triggers ───────────────────────────────────────────────
@@ -215,20 +233,18 @@ public partial class SheetWindow : Window
         if (e.ChangedButton == MouseButton.Left)
         {
             DragMove();
-            // DragMove blocks until mouse up → capture at new position
-            CaptureAndProcess();
+            RequestCapture();
         }
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        // Debounce: wait until resize stops
         _resizeDebounce?.Stop();
         _resizeDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
         _resizeDebounce.Tick += (_, _) =>
         {
             _resizeDebounce.Stop();
-            CaptureAndProcess();
+            RequestCapture();
         };
         _resizeDebounce.Start();
     }
@@ -236,13 +252,13 @@ public partial class SheetWindow : Window
     private void BtnMode_Click(object sender, RoutedEventArgs e)
     {
         _viewModel.ToggleMode();
-        CaptureAndProcess();
+        RequestCapture();
     }
 
     private void BtnFullScreen_Click(object sender, RoutedEventArgs e)
     {
         _viewModel.ToggleFullScreen(this);
-        CaptureAndProcess();
+        RequestCapture();
     }
 
     // ── Export ─────────────────────────────────────────────────
@@ -251,9 +267,7 @@ public partial class SheetWindow : Window
     {
         try
         {
-            // Export: use Win32 physical pixel coordinates
-            var expHwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            GetWindowRect(expHwnd, out RECT ewr);
+            GetWindowRect(_hwndCache, out RECT ewr);
             double edpi;
             try { edpi = GetDpiForSystem() / 96.0; } catch { edpi = 1.0; }
             int x = ewr.Left;
@@ -262,17 +276,7 @@ public partial class SheetWindow : Window
             int h = (ewr.Bottom - ewr.Top) - (int)(24 * edpi) - (int)(32 * edpi);
             if (w <= 0 || h <= 0) return;
 
-            EnsureExcludeFromCapture();
-            if (!_affinitySet)
-            {
-                Opacity = 0;
-                UpdateLayout();
-                System.Threading.Thread.Sleep(16);
-            }
-
             using var captured = _captureService.CaptureRegion(x, y, w, h);
-            if (!_affinitySet) Opacity = 1;
-
             using var processed = _detectorService.EraseColor(captured, _settingsService.Settings.TargetColor);
 
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -302,21 +306,21 @@ public partial class SheetWindow : Window
                 _settingsService.Save();
             }
         }
-        catch { Opacity = 1; }
+        catch { /* swallow */ }
     }
 
     // ── Other handlers ────────────────────────────────────────
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
-        StopAutoRefresh();
+        StopCaptureThread();
         var settingsWindow = new SettingsWindow(_settingsService);
         settingsWindow.Owner = this;
         settingsWindow.Topmost = true;
         settingsWindow.ShowDialog();
         _viewModel.RefreshFromSettings();
-        CaptureAndProcess();
-        StartAutoRefreshIfEnabled();
+        RequestCapture();
+        StartCaptureThreadIfEnabled();
     }
 
     private void BtnClose_Click(object sender, RoutedEventArgs e)
@@ -330,13 +334,12 @@ public partial class SheetWindow : Window
         if (e.Key == Key.Escape && _viewModel.IsFullScreen)
         {
             _viewModel.ToggleFullScreen(this);
-            CaptureAndProcess();
+            RequestCapture();
             e.Handled = true;
         }
-        // F5 or Space = manual refresh
         if (e.Key == Key.F5 || e.Key == Key.Space)
         {
-            CaptureAndProcess();
+            RequestCapture();
             e.Handled = true;
         }
     }
@@ -352,27 +355,12 @@ public partial class SheetWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        StopCaptureThread();
+        CompositionTarget.Rendering -= OnRendering;
         SavePosition();
         base.OnClosed(e);
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [DllImport("user32.dll")]
     private static extern int GetDpiForSystem();
-
-    private static BitmapSource ConvertBitmap(Bitmap bitmap)
-    {
-        double dpi;
-        try { dpi = GetDpiForSystem(); } catch { dpi = 96; }
-
-        var bitmapData = bitmap.LockBits(
-            new Rectangle(0, 0, bitmap.Width, bitmap.Height),
-            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        var source = BitmapSource.Create(
-            bitmapData.Width, bitmapData.Height, dpi, dpi,
-            PixelFormats.Bgra32, null,
-            bitmapData.Scan0, bitmapData.Stride * bitmapData.Height, bitmapData.Stride);
-        bitmap.UnlockBits(bitmapData);
-        source.Freeze();
-        return source;
-    }
 }
