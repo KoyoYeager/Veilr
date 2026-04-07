@@ -74,6 +74,7 @@ public partial class SheetWindow : Window
     {
         if (!_frameReady) return;
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         lock (_swapLock)
         {
             int w = _front.Width, h = _front.Height;
@@ -95,7 +96,11 @@ public partial class SheetWindow : Window
             _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
             _writeableBitmap.Unlock();
         }
+        sw.Stop();
         _frameReady = false;
+
+        _renderCount++;
+        _renderTotalMs += sw.Elapsed.TotalMilliseconds;
     }
 
     // ── Background capture thread ─────────────────────────────
@@ -118,8 +123,19 @@ public partial class SheetWindow : Window
         // Thread will exit on its own
     }
 
+    // ── Profiling ──────────────────────────────────────────────
+    private readonly System.Diagnostics.Stopwatch _profSw = new();
+    private int _profFrameCount;
+    private const int PROF_MAX_FRAMES = 50;
+    private readonly List<string> _profLog = new();
+    private long _renderCount;
+    private double _renderTotalMs;
+
     private void CaptureLoop()
     {
+        // Save first captured frame for WDA verification
+        bool savedDebugFrame = false;
+
         while (_captureRunning)
         {
             bool autoEnabled = _settingsService.Settings.AutoRefreshEnabled;
@@ -135,44 +151,91 @@ public partial class SheetWindow : Window
 
             try
             {
-                // GetWindowRect is thread-safe (Win32 API)
+                _profSw.Restart();
+
                 GetWindowRect(_hwndCache, out RECT wr);
                 int x = wr.Left, y = wr.Top;
                 int w = wr.Right - wr.Left, h = wr.Bottom - wr.Top;
                 if (w <= 0 || h <= 0) continue;
 
-                // Use estimated stride (32bpp ARGB, aligned to 4 bytes)
                 int stride = w * 4;
-
-                // Ensure back buffer is sized
                 _back.EnsureCapacity(w, h, stride);
 
-                // Capture + copy pixels (all on this background thread)
+                // --- Capture ---
+                long t0 = _profSw.ElapsedTicks;
                 _back.CaptureAndCopyPixels(_captureService, x, y);
+                long t1 = _profSw.ElapsedTicks;
 
-                // Process (uses Parallel.For internally)
+                // Verify actual stride matches expected
+                if (!savedDebugFrame && _back.CaptureBitmap != null)
+                {
+                    var dbgData = _back.CaptureBitmap.LockBits(
+                        new Rectangle(0, 0, w, h),
+                        System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                        System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    int actualStride = dbgData.Stride;
+                    _back.CaptureBitmap.UnlockBits(dbgData);
+
+                    // Save first frame as PNG for visual verification
+                    try
+                    {
+                        string dbgPath = Path.Combine(
+                            AppDomain.CurrentDomain.BaseDirectory, "debug-capture.png");
+                        _back.CaptureBitmap.Save(dbgPath, System.Drawing.Imaging.ImageFormat.Png);
+                        _profLog.Add($"DEBUG: First frame saved to {dbgPath}");
+                        _profLog.Add($"DEBUG: Expected stride={stride}, Actual stride={actualStride}");
+                        _profLog.Add($"DEBUG: WDA_EXCLUDEFROMCAPTURE = {_affinitySet}");
+                        // Check if first pixel is black (WDA failure indicator)
+                        byte b0 = _back.Src[0], g0 = _back.Src[1], r0 = _back.Src[2];
+                        _profLog.Add($"DEBUG: First pixel RGB=({r0},{g0},{b0})");
+                    }
+                    catch { /* ignore */ }
+                    savedDebugFrame = true;
+                }
+
+                // --- Process ---
                 var settings = _settingsService.Settings;
                 bool isErase;
-                // Read IsEraseMode safely (it's a simple bool)
                 try { isErase = _viewModel.IsEraseMode; } catch { isErase = false; }
 
+                long t2 = _profSw.ElapsedTicks;
                 if (isErase)
                     _detectorService.EraseColorInto(_back, settings.TargetColor);
                 else
                     _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+                long t3 = _profSw.ElapsedTicks;
 
-                // Swap front/back and signal frame ready
+                // --- Swap ---
                 lock (_swapLock)
                 {
-                    // Copy result to front buffer
                     _front.EnsureCapacity(w, h, stride);
                     Buffer.BlockCopy(_back.Dst, 0, _front.Dst, 0, _back.ByteCount);
                 }
+                long t4 = _profSw.ElapsedTicks;
                 _frameReady = true;
+
+                // --- Log ---
+                double freq = System.Diagnostics.Stopwatch.Frequency;
+                if (_profFrameCount < PROF_MAX_FRAMES)
+                {
+                    double capMs = (t1 - t0) / freq * 1000;
+                    double procMs = (t3 - t2) / freq * 1000;
+                    double swapMs = (t4 - t3) / freq * 1000;
+                    double totalMs = (t4 - t0) / freq * 1000;
+                    _profLog.Add($"Frame {_profFrameCount:D3}  " +
+                        $"Capture:{capMs,6:F1}ms  Process:{procMs,6:F1}ms  " +
+                        $"Swap:{swapMs,5:F1}ms  Total:{totalMs,6:F1}ms  " +
+                        $"Size:{w}x{h}  Mode:{(isErase ? "erase" : "sheet")}");
+                    _profFrameCount++;
+
+                    if (_profFrameCount == PROF_MAX_FRAMES)
+                        FlushProfileLog(w, h);
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Swallow errors in capture thread; next iteration will retry
+                if (_profFrameCount < PROF_MAX_FRAMES)
+                    _profLog.Add($"ERROR: {ex.Message}");
             }
 
             if (!_settingsService.Settings.AutoRefreshEnabled)
@@ -181,6 +244,30 @@ public partial class SheetWindow : Window
             int interval = _settingsService.Settings.UpdateIntervalMs;
             Thread.Sleep(interval);
         }
+    }
+
+    private void FlushProfileLog(int w, int h)
+    {
+        try
+        {
+            var lines = new List<string>
+            {
+                "=== Veilr Capture Profile ===",
+                $"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                $"Window: {w}x{h}",
+                $"WDA_EXCLUDEFROMCAPTURE: {_affinitySet}",
+                $"AutoRefresh: {_settingsService.Settings.AutoRefreshEnabled}",
+                $"Interval: {_settingsService.Settings.UpdateIntervalMs}ms",
+                $"Render frames: {_renderCount}, avg: {(_renderCount > 0 ? _renderTotalMs / _renderCount : 0):F2}ms",
+                ""
+            };
+            lines.AddRange(_profLog);
+
+            string logPath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "capture-profile.log");
+            File.WriteAllLines(logPath, lines);
+        }
+        catch { /* ignore */ }
     }
 
     /// <summary>Request a single frame capture (non-blocking).</summary>
