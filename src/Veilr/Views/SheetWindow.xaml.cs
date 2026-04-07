@@ -313,6 +313,8 @@ public partial class SheetWindow : Window
         _dragStartLeft = Left;
         _dragStartTop = Top;
         ((UIElement)sender).CaptureMouse();
+        // Hide processed image during drag — like moving a physical red sheet
+        ProcessedImage.Visibility = Visibility.Hidden;
     }
 
     private void DragBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
@@ -330,6 +332,7 @@ public partial class SheetWindow : Window
         if (!_isDragging) return;
         _isDragging = false;
         ((UIElement)sender).ReleaseMouseCapture();
+        ProcessedImage.Visibility = Visibility.Visible;
         RequestCapture();
     }
 
