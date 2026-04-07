@@ -5,6 +5,36 @@ using Veilr.Models;
 
 namespace Veilr.Services;
 
+/// <summary>
+/// Pre-allocated frame buffers for zero-allocation per-frame processing.
+/// Call EnsureCapacity once when dimensions change; reuse across frames.
+/// </summary>
+public class FrameBuffer
+{
+    public int Width, Height, Stride, PixelCount, ByteCount;
+    public byte[] Src = [], Dst = [];
+    public double[] Alpha = [];
+    public byte[] BgR = [], BgG = [], BgB = [];
+    public int[] NearestClean = [];
+    // BFS queue — reuse capacity across frames
+    public Queue<int> BfsQueue = new();
+
+    public void EnsureCapacity(int w, int h, int stride)
+    {
+        if (w == Width && h == Height && stride == Stride) return;
+        Width = w; Height = h; Stride = stride;
+        PixelCount = w * h;
+        ByteCount = Math.Abs(stride) * h;
+        Src = new byte[ByteCount];
+        Dst = new byte[ByteCount];
+        Alpha = new double[PixelCount];
+        BgR = new byte[PixelCount];
+        BgG = new byte[PixelCount];
+        BgB = new byte[PixelCount];
+        NearestClean = new int[PixelCount];
+    }
+}
+
 public class ColorDetectorService
 {
     // ── Pre-computed Lab LUT (6-bit per channel → 64×64×64 = 262,144 entries) ──
@@ -566,4 +596,315 @@ public class ColorDetectorService
 
     private static double LabF(double t) =>
         t > 0.008856 ? Math.Cbrt(t) : (7.787 * t + 16.0 / 116.0);
+
+    // ══════════════════════════════════════════════════════════
+    //  Zero-allocation API: works with pre-allocated FrameBuffer
+    //  buf.Src must be populated before calling.
+    //  Results are written into buf.Dst.
+    // ══════════════════════════════════════════════════════════
+
+    public void EraseColorInto(FrameBuffer buf, ColorSettings target)
+    {
+        switch (target.EraseAlgorithm)
+        {
+            case "labmask": EraseLabMaskInto(buf, target); break;
+            case "ycbcr": EraseYCbCrInto(buf, target); break;
+            default: EraseChromaKeyInto(buf, target); break;
+        }
+    }
+
+    public void MultiplyBlendInto(FrameBuffer buf, int[] sheetRgb)
+    {
+        int w = buf.Width, h = buf.Height, stride = buf.Stride;
+        byte[] src = buf.Src, dst = buf.Dst;
+        double sr = sheetRgb[0] / 255.0, sg = sheetRgb[1] / 255.0, sb = sheetRgb[2] / 255.0;
+
+        Parallel.For(0, h, y =>
+        {
+            int rowStart = y * stride;
+            int rowEnd = rowStart + w * 4;
+            for (int i = rowStart; i < rowEnd; i += 4)
+            {
+                dst[i]     = (byte)(src[i]     * sb);
+                dst[i + 1] = (byte)(src[i + 1] * sg);
+                dst[i + 2] = (byte)(src[i + 2] * sr);
+                dst[i + 3] = src[i + 3];
+            }
+        });
+    }
+
+    private void EraseChromaKeyInto(FrameBuffer buf, ColorSettings target)
+    {
+        int w = buf.Width, h = buf.Height, stride = buf.Stride;
+        byte[] src = buf.Src, dst = buf.Dst;
+        double[] alpha = buf.Alpha;
+
+        RgbToLabFull(target.Rgb[0], target.Rgb[1], target.Rgb[2],
+            out double tL, out double tA, out double tB);
+        double targetChroma = Math.Sqrt(tA * tA + tB * tB);
+        double targetAngle = Math.Atan2(tB, tA);
+        double similarity = target.Threshold.H * 1.5;
+        double smoothness = similarity * 0.8;
+        double outerRadius = similarity + smoothness;
+        double hueToleranceDeg = similarity * 0.5;
+
+        // Pass 1: alpha
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * stride + x * 4;
+                RgbToLabFast(src[i + 2], src[i + 1], src[i], out double pL, out double pA, out double pB);
+                double dA = pA - tA, dB = pB - tB;
+                double chromaDist = Math.Sqrt(dA * dA + dB * dB);
+                double pixelChroma = Math.Sqrt(pA * pA + pB * pB);
+                double keyDist = chromaDist;
+
+                if (pixelChroma > 2 && targetChroma > 5)
+                {
+                    double pixelAngle = Math.Atan2(pB, pA);
+                    double angleDiff = Math.Abs(targetAngle - pixelAngle);
+                    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                    double angleDeg = angleDiff * 180.0 / Math.PI;
+                    if (angleDeg <= hueToleranceDeg && pixelChroma > 10)
+                        keyDist = Math.Min(keyDist, angleDeg / hueToleranceDeg * similarity);
+                    else if (angleDeg <= outerRadius * 1.3)
+                    {
+                        double angleBonus = (1.0 - angleDeg / (outerRadius * 1.3)) * similarity * 0.5;
+                        keyDist = Math.Max(0, keyDist - angleBonus);
+                    }
+                }
+
+                if (keyDist <= similarity) alpha[y * w + x] = 0.0;
+                else if (keyDist >= outerRadius) alpha[y * w + x] = 1.0;
+                else alpha[y * w + x] = (keyDist - similarity) / smoothness;
+            }
+        });
+
+        // Pass 2: BFS background (reuses buf arrays)
+        BuildBackgroundBfsInto(buf);
+
+        // Pass 3: blend
+        byte[] bgR = buf.BgR, bgG = buf.BgG, bgB = buf.BgB;
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y * stride + x * 4;
+                int idx = y * w + x;
+                double a = alpha[idx];
+                if (a >= 1.0)
+                { dst[i] = src[i]; dst[i+1] = src[i+1]; dst[i+2] = src[i+2]; dst[i+3] = src[i+3]; }
+                else
+                {
+                    dst[i]   = (byte)(src[i]   * a + bgB[idx] * (1-a));
+                    dst[i+1] = (byte)(src[i+1] * a + bgG[idx] * (1-a));
+                    dst[i+2] = (byte)(src[i+2] * a + bgR[idx] * (1-a));
+                    dst[i+3] = 255;
+                }
+            }
+        });
+
+        // Pass 4: despill
+        double tNormR = target.Rgb[0] / 255.0, tNormG = target.Rgb[1] / 255.0, tNormB = target.Rgb[2] / 255.0;
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int idx = y * w + x;
+                if (alpha[idx] < 0.9) continue;
+                int minDist = int.MaxValue;
+                for (int dy = -6; dy <= 6; dy++)
+                    for (int dx = -6; dx <= 6; dx++)
+                    {
+                        int nx = x+dx, ny = y+dy;
+                        if (nx >= 0 && nx < w && ny >= 0 && ny < h && alpha[ny*w+nx] < 0.5)
+                        { int d = Math.Abs(dx)+Math.Abs(dy); if (d < minDist) minDist = d; }
+                    }
+                if (minDist > 6) continue;
+                double strength = Math.Clamp(1.0-(minDist-1)/6.0, 0, 1) * 0.7;
+                int i = y * stride + x * 4;
+                double pR = dst[i+2]/255.0, pG = dst[i+1]/255.0, pB = dst[i]/255.0;
+                if (tNormR >= tNormG && tNormR >= tNormB) { double l = Math.Max(pG,pB); if (pR>l) pR = pR*(1-strength)+l*strength; }
+                else if (tNormG >= tNormR && tNormG >= tNormB) { double l = Math.Max(pR,pB); if (pG>l) pG = pG*(1-strength)+l*strength; }
+                else { double l = Math.Max(pR,pG); if (pB>l) pB = pB*(1-strength)+l*strength; }
+                dst[i+2] = (byte)(Math.Clamp(pR,0,1)*255);
+                dst[i+1] = (byte)(Math.Clamp(pG,0,1)*255);
+                dst[i]   = (byte)(Math.Clamp(pB,0,1)*255);
+            }
+        });
+    }
+
+    private void EraseYCbCrInto(FrameBuffer buf, ColorSettings target)
+    {
+        int w = buf.Width, h = buf.Height, stride = buf.Stride;
+        byte[] src = buf.Src, dst = buf.Dst;
+        double[] alpha = buf.Alpha;
+
+        RgbToYCbCr(target.Rgb[0], target.Rgb[1], target.Rgb[2], out _, out double tCb, out double tCr);
+        double similarity = target.Threshold.H * 2.0;
+        double smoothness = similarity * 0.7;
+        double outerRadius = similarity + smoothness;
+        double tCbC = tCb-128, tCrC = tCr-128;
+        double targetAngle = Math.Atan2(tCrC, tCbC);
+        double targetChroma = Math.Sqrt(tCbC*tCbC + tCrC*tCrC);
+        double hueTol = similarity * 0.5;
+
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y*stride + x*4;
+                RgbToYCbCr(src[i+2], src[i+1], src[i], out _, out double pCb, out double pCr);
+                double dist = Math.Sqrt((pCb-tCb)*(pCb-tCb) + (pCr-tCr)*(pCr-tCr));
+                double pCbC2 = pCb-128, pCrC2 = pCr-128;
+                double pChroma = Math.Sqrt(pCbC2*pCbC2 + pCrC2*pCrC2);
+                if (pChroma > 5 && targetChroma > 5)
+                {
+                    double pAng = Math.Atan2(pCrC2, pCbC2);
+                    double ad = Math.Abs(targetAngle - pAng); if (ad > Math.PI) ad = 2*Math.PI - ad;
+                    double adeg = ad * 180.0 / Math.PI;
+                    if (adeg <= hueTol && pChroma > 8) dist = Math.Min(dist, adeg/hueTol*similarity);
+                }
+                if (dist <= similarity) alpha[y*w+x] = 0.0;
+                else if (dist >= outerRadius) alpha[y*w+x] = 1.0;
+                else alpha[y*w+x] = (dist - similarity) / smoothness;
+            }
+        });
+
+        BuildBackgroundBfsInto(buf);
+
+        byte[] bgR = buf.BgR, bgG = buf.BgG, bgB = buf.BgB;
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y*stride+x*4; int idx = y*w+x; double a = alpha[idx];
+                if (a >= 1.0) { dst[i]=src[i]; dst[i+1]=src[i+1]; dst[i+2]=src[i+2]; dst[i+3]=src[i+3]; }
+                else { dst[i]=(byte)(src[i]*a+bgB[idx]*(1-a)); dst[i+1]=(byte)(src[i+1]*a+bgG[idx]*(1-a)); dst[i+2]=(byte)(src[i+2]*a+bgR[idx]*(1-a)); dst[i+3]=255; }
+            }
+        });
+    }
+
+    private void EraseLabMaskInto(FrameBuffer buf, ColorSettings target)
+    {
+        int w = buf.Width, h = buf.Height, stride = buf.Stride;
+        byte[] src = buf.Src, dst = buf.Dst;
+        double[] alpha = buf.Alpha; // reuse as mask (0.0 = keyed, 1.0 = keep)
+
+        RgbToLabFull(target.Rgb[0], target.Rgb[1], target.Rgb[2], out _, out double tA, out double tB);
+        double targetChroma = Math.Sqrt(tA*tA + tB*tB);
+        double targetAngle = Math.Atan2(tB, tA);
+        double maxDist = target.Threshold.H * 1.35;
+
+        // Pass 1: mark
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y*stride+x*4;
+                RgbToLabFast(src[i+2], src[i+1], src[i], out _, out double pA, out double pB);
+                double dA2 = pA-tA, dB2 = pB-tB;
+                double cd = Math.Sqrt(dA2*dA2+dB2*dB2);
+                double pc = Math.Sqrt(pA*pA+pB*pB);
+                bool dm = cd <= maxDist, em = false;
+                if (pc > 2 && targetChroma > 5) { double pa = Math.Atan2(pB,pA); double ad = Math.Abs(targetAngle-pa); if (ad>Math.PI) ad=2*Math.PI-ad; em = ad*180.0/Math.PI <= maxDist*1.3; }
+                alpha[y*w+x] = (dm || em) ? 0.0 : 1.0;
+            }
+        });
+
+        // Pass 1.5: dilation (sequential)
+        for (int pass = 0; pass < 3; pass++)
+        {
+            // Use BgR as temp mask storage (avoids allocation)
+            for (int i = 0; i < buf.PixelCount; i++) buf.BgR[i] = alpha[i] < 0.5 ? (byte)1 : (byte)0;
+            for (int y = 1; y < h-1; y++)
+                for (int x = 1; x < w-1; x++)
+                {
+                    if (alpha[y*w+x] < 0.5) continue;
+                    int nb = 0;
+                    if (alpha[(y-1)*w+x] < 0.5) nb++; if (alpha[(y+1)*w+x] < 0.5) nb++;
+                    if (alpha[y*w+x-1] < 0.5) nb++; if (alpha[y*w+x+1] < 0.5) nb++;
+                    if (nb < 3) continue;
+                    int ii = y*stride+x*4;
+                    RgbToLabFast(src[ii+2], src[ii+1], src[ii], out _, out double eA, out double eB);
+                    double ec = Math.Sqrt(eA*eA+eB*eB); if (ec < 1.5) continue;
+                    double ea = Math.Atan2(eB,eA); double ad2 = Math.Abs(targetAngle-ea); if(ad2>Math.PI) ad2=2*Math.PI-ad2;
+                    if (ad2*180/Math.PI <= 28) buf.BgR[y*w+x] = 1;
+                }
+            for (int i = 0; i < buf.PixelCount; i++) alpha[i] = buf.BgR[i] == 1 ? 0.0 : 1.0;
+        }
+
+        BuildBackgroundBfsInto(buf);
+
+        byte[] bgR = buf.BgR, bgG = buf.BgG, bgB = buf.BgB;
+        Parallel.For(0, h, y =>
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int i = y*stride+x*4; int idx = y*w+x;
+                if (alpha[idx] >= 1.0) { dst[i]=src[i]; dst[i+1]=src[i+1]; dst[i+2]=src[i+2]; dst[i+3]=src[i+3]; }
+                else { dst[i]=bgB[idx]; dst[i+1]=bgG[idx]; dst[i+2]=bgR[idx]; dst[i+3]=255; }
+            }
+        });
+    }
+
+    /// <summary>
+    /// BFS background using pre-allocated FrameBuffer arrays.
+    /// Reads: buf.Src, buf.Alpha. Writes: buf.BgR, buf.BgG, buf.BgB, buf.NearestClean.
+    /// </summary>
+    private static void BuildBackgroundBfsInto(FrameBuffer buf)
+    {
+        int w = buf.Width, h = buf.Height, stride = buf.Stride, total = buf.PixelCount;
+        byte[] src = buf.Src;
+        double[] alpha = buf.Alpha;
+        byte[] bgR = buf.BgR, bgG = buf.BgG, bgB = buf.BgB;
+        int[] nearest = buf.NearestClean;
+        var queue = buf.BfsQueue;
+
+        Array.Fill(nearest, -1);
+        queue.Clear();
+
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int idx = y * w + x;
+                if (alpha[idx] < 1.0) continue;
+                bool clean = true;
+                for (int dy = -1; dy <= 1 && clean; dy++)
+                    for (int dx = -1; dx <= 1 && clean; dx++)
+                    {
+                        int nx = x+dx, ny = y+dy;
+                        if (nx >= 0 && nx < w && ny >= 0 && ny < h && alpha[ny*w+nx] < 1.0)
+                            clean = false;
+                    }
+                if (clean)
+                {
+                    int i = y * stride + x * 4;
+                    bgR[idx] = src[i+2]; bgG[idx] = src[i+1]; bgB[idx] = src[i];
+                    nearest[idx] = idx;
+                    queue.Enqueue(idx);
+                }
+            }
+
+        int[] dx4 = {-1,1,0,0}, dy4 = {0,0,-1,1};
+        while (queue.Count > 0)
+        {
+            int cur = queue.Dequeue();
+            int cx = cur % w, cy = cur / w;
+            for (int d = 0; d < 4; d++)
+            {
+                int nx = cx+dx4[d], ny = cy+dy4[d];
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                int ni = ny*w+nx;
+                if (nearest[ni] >= 0) continue;
+                nearest[ni] = nearest[cur];
+                bgR[ni] = bgR[cur]; bgG[ni] = bgG[cur]; bgB[ni] = bgB[cur];
+                queue.Enqueue(ni);
+            }
+        }
+
+        for (int i = 0; i < total; i++)
+            if (nearest[i] < 0) { bgR[i] = 255; bgG[i] = 255; bgB[i] = 255; }
+    }
 }

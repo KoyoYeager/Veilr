@@ -29,6 +29,12 @@ public partial class SheetWindow : Window
     private DispatcherTimer? _autoRefreshTimer;
     private bool _isCapturing;
 
+    // Pre-allocated frame buffers (zero GC per frame)
+    private readonly FrameBuffer _frameBuffer = new();
+    private Bitmap? _captureBitmap;
+    private WriteableBitmap? _writeableBitmap;
+    private int _lastCaptureW, _lastCaptureH;
+
     public SheetWindow(SettingsService settingsService)
     {
         InitializeComponent();
@@ -127,8 +133,6 @@ public partial class SheetWindow : Window
 
             double dpi;
             try { dpi = GetDpiForSystem() / 96.0; } catch { dpi = 1.0; }
-            int barTop = (int)(24 * dpi);
-            int barBottom = (int)(32 * dpi);
 
             int x = wr.Left;
             int y = wr.Top;
@@ -138,42 +142,61 @@ public partial class SheetWindow : Window
 
             EnsureExcludeFromCapture();
 
-            Bitmap captured;
+            // Reuse capture bitmap (only allocate on size change)
+            if (_captureBitmap == null || _lastCaptureW != w || _lastCaptureH != h)
+            {
+                _captureBitmap?.Dispose();
+                _captureBitmap = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+                _lastCaptureW = w;
+                _lastCaptureH = h;
+            }
+
             if (_affinitySet)
             {
-                // Window is excluded from capture — no need to hide
-                captured = _captureService.CaptureRegion(x, y, w, h);
+                _captureService.CaptureInto(_captureBitmap, x, y);
             }
             else
             {
-                // Fallback: hide briefly (older Windows)
                 Opacity = 0;
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
                 await Task.Delay(16);
-                captured = _captureService.CaptureRegion(x, y, w, h);
+                _captureService.CaptureInto(_captureBitmap, x, y);
                 Opacity = 1;
             }
 
-            // Process on background thread to avoid UI freeze
+            // Copy pixels into pre-allocated FrameBuffer
+            var srcData = _captureBitmap.LockBits(
+                new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            int stride = srcData.Stride;
+            _frameBuffer.EnsureCapacity(w, h, stride);
+            Marshal.Copy(srcData.Scan0, _frameBuffer.Src, 0, _frameBuffer.ByteCount);
+            _captureBitmap.UnlockBits(srcData);
+
+            // Process on background thread — zero allocation
             var settings = _settingsService.Settings;
             var isErase = _viewModel.IsEraseMode;
             var targetColor = settings.TargetColor;
             var overlayRgb = settings.OverlayColor.Rgb;
+            var buf = _frameBuffer;
 
-            var result = await Task.Run(() =>
+            await Task.Run(() =>
             {
-                Bitmap processed;
                 if (isErase)
-                    processed = _detectorService.EraseColor(captured, targetColor);
+                    _detectorService.EraseColorInto(buf, targetColor);
                 else
-                    processed = _detectorService.MultiplyBlend(captured, overlayRgb);
-                var source = ConvertBitmap(processed);
-                processed.Dispose();
-                captured.Dispose();
-                return source;
+                    _detectorService.MultiplyBlendInto(buf, overlayRgb);
             });
 
-            _viewModel.ProcessedImageSource = result;
+            // Update WriteableBitmap (fast memcpy, no new BitmapSource)
+            if (_writeableBitmap == null || _writeableBitmap.PixelWidth != w || _writeableBitmap.PixelHeight != h)
+            {
+                _writeableBitmap = new WriteableBitmap(w, h, dpi * 96, dpi * 96, PixelFormats.Bgra32, null);
+                _viewModel.ProcessedImageSource = _writeableBitmap;
+            }
+            _writeableBitmap.Lock();
+            Marshal.Copy(buf.Dst, 0, _writeableBitmap.BackBuffer, buf.ByteCount);
+            _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
+            _writeableBitmap.Unlock();
         }
         catch
         {

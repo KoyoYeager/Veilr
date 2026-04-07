@@ -18,6 +18,15 @@ public class ScreenCaptureService
         return bmp;
     }
 
+    /// <summary>
+    /// Capture into a pre-allocated Bitmap (zero allocation).
+    /// </summary>
+    public void CaptureInto(Bitmap target, int x, int y)
+    {
+        using var g = Graphics.FromImage(target);
+        g.CopyFromScreen(x, y, 0, 0, target.Size, CopyPixelOperation.SourceCopy);
+    }
+
     public System.Drawing.Color GetPixelColor(int x, int y)
     {
         var hdc = GetDC(nint.Zero);
