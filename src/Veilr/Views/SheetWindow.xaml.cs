@@ -36,7 +36,6 @@ public partial class SheetWindow : Window
     private volatile bool _frameReady;
     private WriteableBitmap? _writeableBitmap;
     private nint _hwndCache;
-    private TranslateTransform _imageTranslate = null!; // set in OnLoaded
 
     public SheetWindow(SettingsService settingsService)
     {
@@ -66,7 +65,6 @@ public partial class SheetWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _hwndCache = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        _imageTranslate = (TranslateTransform)ProcessedImage.RenderTransform;
         EnsureExcludeFromCapture();
         RequestCapture();
         StartCaptureThreadIfEnabled();
@@ -99,21 +97,6 @@ public partial class SheetWindow : Window
             _writeableBitmap.AddDirtyRect(new Int32Rect(0, 0, w, h));
             _writeableBitmap.Unlock();
 
-            // Offset compensation: shift image to match capture position vs current position
-            // This eliminates the visual "lag" during drag
-            if (_isDragging)
-            {
-                GetWindowRect(_hwndCache, out RECT nowR);
-                double dipDpi;
-                try { dipDpi = GetDpiForSystem() / 96.0; } catch { dipDpi = 1.0; }
-                _imageTranslate.X = (_front.CaptureX - nowR.Left) / dipDpi;
-                _imageTranslate.Y = (_front.CaptureY - nowR.Top) / dipDpi;
-            }
-            else
-            {
-                _imageTranslate.X = 0;
-                _imageTranslate.Y = 0;
-            }
         }
         sw.Stop();
 
@@ -350,9 +333,6 @@ public partial class SheetWindow : Window
         if (!_isDragging) return;
         _isDragging = false;
         ((UIElement)sender).ReleaseMouseCapture();
-        // Reset image offset and capture at final position
-        _imageTranslate.X = 0;
-        _imageTranslate.Y = 0;
         RequestCapture();
     }
 
