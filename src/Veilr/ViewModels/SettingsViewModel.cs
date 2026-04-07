@@ -153,7 +153,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     public int UpdateIntervalMs
     {
         get => _updateIntervalMs;
-        set { _updateIntervalMs = Math.Clamp(value, 16, 500); OnPropertyChanged(nameof(UpdateIntervalMs)); OnPropertyChanged(nameof(UpdateIntervalDisplay)); }
+        set { _updateIntervalMs = Math.Clamp(value, 8, 500); OnPropertyChanged(nameof(UpdateIntervalMs)); OnPropertyChanged(nameof(UpdateIntervalDisplay)); }
     }
     public string UpdateIntervalDisplay => $"{_updateIntervalMs}ms ({1000 / _updateIntervalMs}fps)";
 

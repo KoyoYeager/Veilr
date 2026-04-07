@@ -111,9 +111,9 @@
                             <ColumnDefinition Width="100"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="LblUpdateRate" VerticalAlignment="Center"/>
-                        <Slider Grid.Column="1" Minimum="16" Maximum="500"
+                        <Slider Grid.Column="1" Minimum="8" Maximum="500"
                                 Value="{Binding UpdateIntervalMs}" VerticalAlignment="Center"
-                                TickFrequency="16" IsSnapToTickEnabled="True"/>
+                                TickFrequency="8" IsSnapToTickEnabled="True"/>
                         <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
                                    Text="{Binding UpdateIntervalDisplay}" FontSize="11"/>
                     </Grid>
