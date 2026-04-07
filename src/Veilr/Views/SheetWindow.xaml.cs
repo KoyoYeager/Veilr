@@ -73,6 +73,14 @@ public partial class SheetWindow : Window
     // ── CompositionTarget.Rendering: UI update (memcpy only, ~0.3ms) ──
     private void OnRendering(object? sender, EventArgs e)
     {
+        // Sync drag position with image update — same frame, no desync
+        if (_isDragging)
+        {
+            GetCursorPos(out var cursor);
+            Left = _dragStartLeft + (cursor.X - _dragStartCursor.X) / _dpiScale;
+            Top = _dragStartTop + (cursor.Y - _dragStartCursor.Y) / _dpiScale;
+        }
+
         if (!_frameReady) return;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -297,7 +305,7 @@ public partial class SheetWindow : Window
 
     // ── Triggers ───────────────────────────────────────────────
 
-    // ── Non-blocking drag ───────────────────────────────────────
+    // ── Non-blocking drag (position update synced to OnRendering) ──
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT pt);
 
@@ -307,6 +315,7 @@ public partial class SheetWindow : Window
     private bool _isDragging;
     private POINT _dragStartCursor;
     private double _dragStartLeft, _dragStartTop;
+    private double _dpiScale = 1.0;
 
     private void DragBar_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -315,17 +324,14 @@ public partial class SheetWindow : Window
         GetCursorPos(out _dragStartCursor);
         _dragStartLeft = Left;
         _dragStartTop = Top;
+        try { _dpiScale = GetDpiForSystem() / 96.0; } catch { _dpiScale = 1.0; }
         ((UIElement)sender).CaptureMouse();
     }
 
     private void DragBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (!_isDragging) return;
-        GetCursorPos(out var cursor);
-        double dpi;
-        try { dpi = GetDpiForSystem() / 96.0; } catch { dpi = 1.0; }
-        Left = _dragStartLeft + (cursor.X - _dragStartCursor.X) / dpi;
-        Top = _dragStartTop + (cursor.Y - _dragStartCursor.Y) / dpi;
+        // MouseMove records nothing — position update happens in OnRendering
+        // to stay synchronized with image updates
     }
 
     private void DragBar_MouseUp(object sender, MouseButtonEventArgs e)
@@ -333,6 +339,10 @@ public partial class SheetWindow : Window
         if (!_isDragging) return;
         _isDragging = false;
         ((UIElement)sender).ReleaseMouseCapture();
+        // Final position snap
+        GetCursorPos(out var cursor);
+        Left = _dragStartLeft + (cursor.X - _dragStartCursor.X) / _dpiScale;
+        Top = _dragStartTop + (cursor.Y - _dragStartCursor.Y) / _dpiScale;
         RequestCapture();
     }
 
