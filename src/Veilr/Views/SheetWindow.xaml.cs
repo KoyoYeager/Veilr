@@ -126,6 +126,7 @@ public partial class SheetWindow : Window
 
     // ── Profiling ──────────────────────────────────────────────
     private readonly System.Diagnostics.Stopwatch _profSw = new();
+    private readonly System.Diagnostics.Stopwatch _frameIntervalSw = new();
     private int _profFrameCount;
     private const int PROF_MAX_FRAMES = 50;
     private readonly List<string> _profLog = new();
@@ -134,8 +135,9 @@ public partial class SheetWindow : Window
 
     private void CaptureLoop()
     {
-        // Initialize DXGI (GPU capture)
+        // Initialize DXGI (GPU capture) + high-res timer
         _dxgiCapture.TryInitialize();
+        EnsureHighResTimer();
 
         while (_captureRunning)
         {
@@ -144,7 +146,7 @@ public partial class SheetWindow : Window
 
             if (!shouldCapture || _frameReady)
             {
-                Thread.Sleep(1);
+                Thread.SpinWait(100); // Don't use Thread.Sleep here — too imprecise
                 continue;
             }
 
@@ -195,10 +197,12 @@ public partial class SheetWindow : Window
                     double procMs = (t3 - t2) / freq * 1000;
                     double swapMs = (t4 - t3) / freq * 1000;
                     double totalMs = (t4 - t0) / freq * 1000;
+                    double intervalMs = _frameIntervalSw.Elapsed.TotalMilliseconds;
+                    _frameIntervalSw.Restart();
                     _profLog.Add($"Frame {_profFrameCount:D3}  " +
-                        $"Capture:{capMs,6:F1}ms  Process:{procMs,6:F1}ms  " +
-                        $"Swap:{swapMs,5:F1}ms  Total:{totalMs,6:F1}ms  " +
-                        $"Size:{w}x{h}  DXGI:{_dxgiCapture.IsUsingDxgi}");
+                        $"Cap:{capMs,5:F1}ms  Proc:{procMs,5:F1}ms  " +
+                        $"Total:{totalMs,5:F1}ms  Interval:{intervalMs,6:F1}ms  " +
+                        $"({(intervalMs > 0 ? 1000/intervalMs : 0),5:F0}fps)");
                     _profFrameCount++;
 
                     if (_profFrameCount == PROF_MAX_FRAMES)
@@ -213,12 +217,9 @@ public partial class SheetWindow : Window
 
             if (!autoEnabled) continue;
 
-            // Accurate frame rate control: sleep only the remaining time
-            _profSw.Stop();
+            // Precise frame pacing: sleep + spin-wait for accurate interval
             int interval = _settingsService.Settings.UpdateIntervalMs;
-            int elapsed = (int)_profSw.ElapsedMilliseconds;
-            int remaining = interval - elapsed;
-            if (remaining > 1) Thread.Sleep(remaining);
+            PreciseSleep(interval, _profSw);
         }
     }
 
@@ -420,6 +421,7 @@ public partial class SheetWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         StopCaptureThread();
+        ReleaseHighResTimer();
         _dxgiCapture.Dispose();
         CompositionTarget.Rendering -= OnRendering;
         SavePosition();
@@ -428,4 +430,43 @@ public partial class SheetWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetDpiForSystem();
+
+    // High-resolution timer for smooth frame pacing
+    [DllImport("winmm.dll")]
+    private static extern uint timeBeginPeriod(uint uMilliseconds);
+    [DllImport("winmm.dll")]
+    private static extern uint timeEndPeriod(uint uMilliseconds);
+    private bool _timerPeriodSet;
+
+    private void EnsureHighResTimer()
+    {
+        if (_timerPeriodSet) return;
+        timeBeginPeriod(1); // Set system timer resolution to 1ms
+        _timerPeriodSet = true;
+    }
+
+    private void ReleaseHighResTimer()
+    {
+        if (!_timerPeriodSet) return;
+        timeEndPeriod(1);
+        _timerPeriodSet = false;
+    }
+
+    /// <summary>
+    /// Accurate sleep: Thread.Sleep for most of the time, spin-wait for the last 2ms.
+    /// Windows Thread.Sleep has ~1-2ms jitter even with timeBeginPeriod(1).
+    /// </summary>
+    private static void PreciseSleep(int targetMs, System.Diagnostics.Stopwatch sw)
+    {
+        long targetTicks = targetMs * System.Diagnostics.Stopwatch.Frequency / 1000;
+        long sleepUntil = targetTicks - 2 * System.Diagnostics.Stopwatch.Frequency / 1000; // stop sleep 2ms early
+
+        // Coarse sleep
+        while (sw.ElapsedTicks < sleepUntil)
+            Thread.Sleep(1);
+
+        // Spin-wait for remaining ~2ms (precise)
+        while (sw.ElapsedTicks < targetTicks)
+            Thread.SpinWait(10);
+    }
 }
