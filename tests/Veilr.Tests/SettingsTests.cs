@@ -59,10 +59,10 @@ public class SettingsTests
     }
 
     [Fact]
-    public void AppSettings_UseGpuProcessing_DefaultIsTrue()
+    public void AppSettings_UseGpuProcessing_DefaultIsFalse()
     {
         var settings = new AppSettings();
-        Assert.True(settings.UseGpuProcessing);
+        Assert.False(settings.UseGpuProcessing);
     }
 
     [Fact]

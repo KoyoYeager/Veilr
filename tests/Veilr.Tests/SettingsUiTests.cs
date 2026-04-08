@@ -56,7 +56,7 @@ public class SettingsUiTests
                 Assert.Contains("GPUコンピュートシェーダー", lblGpu!.Text);
                 // Check via ViewModel (binding may not be resolved in test without layout pass)
                 var vmCheck = win.DataContext as Veilr.ViewModels.SettingsViewModel;
-                Assert.True(vmCheck!.UseGpuProcessing, "GPU default should be true in ViewModel");
+                Assert.False(vmCheck!.UseGpuProcessing, "GPU default should be false in ViewModel");
 
                 // Verify Tab2 has the expected children
                 var sp = tab2.Content as WpfStackPanel;
@@ -125,12 +125,12 @@ public class SettingsUiTests
     }
 
     [Fact]
-    public void SettingsViewModel_UseGpuProcessing_DefaultTrue()
+    public void SettingsViewModel_UseGpuProcessing_DefaultFalse()
     {
         var ss = new SettingsService();
         var vm = new Veilr.ViewModels.SettingsViewModel(ss);
 
-        Assert.True(vm.UseGpuProcessing);
+        Assert.False(vm.UseGpuProcessing);
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public class SettingsUiTests
         var ss = new SettingsService();
         var vm = new Veilr.ViewModels.SettingsViewModel(ss);
 
-        vm.UseGpuProcessing = false;
+        vm.UseGpuProcessing = true;
         Assert.True(vm.HasChanges);
     }
 
