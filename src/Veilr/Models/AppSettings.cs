@@ -12,6 +12,7 @@ public class AppSettings
     public int UpdateIntervalMs { get; set; } = 200;
     public bool AutoRefreshEnabled { get; set; } = false;
     public bool UseGpuProcessing { get; set; } = false;
+    public int BarOpacityPercent { get; set; } = 70;
     public HotkeySettings Hotkeys { get; set; } = new();
     public ThemeSettings UiTheme { get; set; } = new();
 

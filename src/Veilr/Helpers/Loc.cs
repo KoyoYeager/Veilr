@@ -57,6 +57,10 @@ public static class Loc
         ? "1ms = MAX (unlimited), 8ms = 120fps, 16ms = 60fps. Lower = faster but more CPU/GPU."
         : "1ms = 最速（無制限）、8ms = 120fps、16ms = 60fps。小さいほどCPU/GPU負荷増";
 
+    public static string BarOpacity => _lang == "en" ? "Bar opacity (erase mode)" : "バー透明度（消去モード）";
+    public static string BarOpacityDesc => _lang == "en"
+        ? "0% = fully transparent, 100% = fully opaque"
+        : "0% = 完全に透明、100% = 不透明";
     public static string GpuAcceleration => _lang == "en" ? "GPU acceleration" : "GPU高速化";
     public static string GpuAccelerationDesc => _lang == "en"
         ? "Use GPU compute shaders for faster processing. Disable if you experience issues."

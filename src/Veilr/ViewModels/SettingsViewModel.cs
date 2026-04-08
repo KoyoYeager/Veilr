@@ -21,6 +21,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     private int _updateIntervalMs;
     private bool _autoRefreshEnabled;
     private bool _useGpuProcessing;
+    private int _barOpacityPercent;
 
     // Appearance
     private string _language = "ja";
@@ -31,6 +32,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     private int _initTolerance, _initInterval, _initAlgorithm;
     private bool _initAutoRefresh;
     private bool _initUseGpu;
+    private int _initBarOpacity;
     private string _initLanguage = "ja", _initHotkey = "ctrl+shift+e";
 
     // Hotkey
@@ -67,6 +69,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _updateIntervalMs = s.UpdateIntervalMs;
         _autoRefreshEnabled = s.AutoRefreshEnabled;
         _useGpuProcessing = s.UseGpuProcessing;
+        _barOpacityPercent = s.BarOpacityPercent;
 
         _language = s.UiTheme.Language;
         _hotkeyToggleSheet = s.Hotkeys.ToggleSheet;
@@ -77,6 +80,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _initInterval = _updateIntervalMs;
         _initAutoRefresh = _autoRefreshEnabled;
         _initUseGpu = _useGpuProcessing;
+        _initBarOpacity = _barOpacityPercent;
         _initAlgorithm = _eraseAlgorithmIndex;
         _initLanguage = _language; _initHotkey = _hotkeyToggleSheet;
     }
@@ -159,6 +163,11 @@ public class SettingsViewModel : INotifyPropertyChanged
         get => _useGpuProcessing;
         set { _useGpuProcessing = value; OnPropertyChanged(nameof(UseGpuProcessing)); }
     }
+    public int BarOpacityPercent
+    {
+        get => _barOpacityPercent;
+        set { _barOpacityPercent = Math.Clamp(value, 0, 100); OnPropertyChanged(nameof(BarOpacityPercent)); }
+    }
     public int UpdateIntervalMs
     {
         get => _updateIntervalMs;
@@ -181,6 +190,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         || _updateIntervalMs != _initInterval
         || _autoRefreshEnabled != _initAutoRefresh
         || _useGpuProcessing != _initUseGpu
+        || _barOpacityPercent != _initBarOpacity
         || _eraseAlgorithmIndex != _initAlgorithm
         || _language != _initLanguage || _hotkeyToggleSheet != _initHotkey;
 
@@ -217,6 +227,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         s.UpdateIntervalMs = _updateIntervalMs;
         s.AutoRefreshEnabled = _autoRefreshEnabled;
         s.UseGpuProcessing = _useGpuProcessing;
+        s.BarOpacityPercent = _barOpacityPercent;
         s.UiTheme.Language = _language;
         s.Hotkeys.ToggleSheet = _hotkeyToggleSheet;
 

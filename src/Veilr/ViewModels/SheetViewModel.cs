@@ -87,7 +87,8 @@ public class SheetViewModel : INotifyPropertyChanged
         }
     }
     public SolidColorBrush BarBackground => _isEraseMode
-        ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(180, 255, 255, 255))
+        ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(
+            (byte)(_settings.Settings.BarOpacityPercent * 255 / 100), 255, 255, 255))
         : new SolidColorBrush(System.Windows.Media.Colors.Transparent);
     public SolidColorBrush BarForeground =>
         new SolidColorBrush(System.Windows.Media.Colors.Black);
