@@ -1,6 +1,6 @@
 # Veilr - Screen Color Eraser 仕様書
 
-**バージョン**: v2.0
+**バージョン**: v1.0.0
 **更新日**: 2026-04-09
 **対応OS**: Windows 10/11
 **開発言語**: C# (.NET 8 / WPF)
