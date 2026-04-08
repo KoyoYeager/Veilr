@@ -47,6 +47,8 @@ public partial class SettingsWindow : Window
         LblAutoRefreshDesc.Text = Loc.AutoRefreshDesc;
         LblUpdateRate.Text = Loc.UpdateFrequency;
         LblUpdateRateDesc.Text = Loc.UpdateFrequencyDesc;
+        ChkGpuAccel.Content = Loc.GpuAcceleration;
+        LblGpuAccelDesc.Text = Loc.GpuAccelerationDesc;
 
         LblHotkeySettings.Text = Loc.HotkeySettings;
         LblToggleSheet.Text = Loc.ToggleSheet;

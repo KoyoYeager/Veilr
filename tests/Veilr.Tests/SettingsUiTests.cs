@@ -47,12 +47,22 @@ public class SettingsUiTests
                 // Verify binding works
                 Assert.False(chk.IsChecked); // default = false
 
+                // GPU acceleration checkbox
+                var chkGpu = (WpfCheckBox?)win.FindName("ChkGpuAccel");
+                var lblGpu = (WpfTextBlock?)win.FindName("LblGpuAccelDesc");
+                Assert.NotNull(chkGpu);
+                Assert.NotNull(lblGpu);
+                Assert.Equal("GPU高速化", chkGpu!.Content?.ToString());
+                Assert.Contains("GPUコンピュートシェーダー", lblGpu!.Text);
+                // Check via ViewModel (binding may not be resolved in test without layout pass)
+                var vmCheck = win.DataContext as Veilr.ViewModels.SettingsViewModel;
+                Assert.True(vmCheck!.UseGpuProcessing, "GPU default should be true in ViewModel");
+
                 // Verify Tab2 has the expected children
                 var sp = tab2.Content as WpfStackPanel;
                 Assert.NotNull(sp);
-                // Should have: LblEraseSettings, ChkAutoRefresh, LblAutoRefreshDesc, Grid (slider), LblUpdateRateDesc
-                Assert.True(sp!.Children.Count >= 5,
-                    $"Tab2 should have ≥5 children, got {sp.Children.Count}");
+                Assert.True(sp!.Children.Count >= 7,
+                    $"Tab2 should have ≥7 children, got {sp.Children.Count}");
 
                 // Verify fps display property
                 var vm = win.DataContext as Veilr.ViewModels.SettingsViewModel;
@@ -111,6 +121,25 @@ public class SettingsUiTests
         Assert.False(vm.HasChanges);
 
         vm.AutoRefreshEnabled = true;
+        Assert.True(vm.HasChanges);
+    }
+
+    [Fact]
+    public void SettingsViewModel_UseGpuProcessing_DefaultTrue()
+    {
+        var ss = new SettingsService();
+        var vm = new Veilr.ViewModels.SettingsViewModel(ss);
+
+        Assert.True(vm.UseGpuProcessing);
+    }
+
+    [Fact]
+    public void SettingsViewModel_UseGpuProcessing_ToggleDetectsChange()
+    {
+        var ss = new SettingsService();
+        var vm = new Veilr.ViewModels.SettingsViewModel(ss);
+
+        vm.UseGpuProcessing = false;
         Assert.True(vm.HasChanges);
     }
 

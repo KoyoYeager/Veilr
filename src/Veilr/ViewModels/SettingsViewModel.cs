@@ -20,6 +20,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     // Behavior
     private int _updateIntervalMs;
     private bool _autoRefreshEnabled;
+    private bool _useGpuProcessing;
 
     // Appearance
     private string _language = "ja";
@@ -29,6 +30,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     private double _initOpacity;
     private int _initTolerance, _initInterval, _initAlgorithm;
     private bool _initAutoRefresh;
+    private bool _initUseGpu;
     private string _initLanguage = "ja", _initHotkey = "ctrl+shift+e";
 
     // Hotkey
@@ -64,6 +66,7 @@ public class SettingsViewModel : INotifyPropertyChanged
 
         _updateIntervalMs = s.UpdateIntervalMs;
         _autoRefreshEnabled = s.AutoRefreshEnabled;
+        _useGpuProcessing = s.UseGpuProcessing;
 
         _language = s.UiTheme.Language;
         _hotkeyToggleSheet = s.Hotkeys.ToggleSheet;
@@ -73,6 +76,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _initOpacity = _opacity; _initTolerance = _tolerance;
         _initInterval = _updateIntervalMs;
         _initAutoRefresh = _autoRefreshEnabled;
+        _initUseGpu = _useGpuProcessing;
         _initAlgorithm = _eraseAlgorithmIndex;
         _initLanguage = _language; _initHotkey = _hotkeyToggleSheet;
     }
@@ -150,6 +154,11 @@ public class SettingsViewModel : INotifyPropertyChanged
         get => _autoRefreshEnabled;
         set { _autoRefreshEnabled = value; OnPropertyChanged(nameof(AutoRefreshEnabled)); }
     }
+    public bool UseGpuProcessing
+    {
+        get => _useGpuProcessing;
+        set { _useGpuProcessing = value; OnPropertyChanged(nameof(UseGpuProcessing)); }
+    }
     public int UpdateIntervalMs
     {
         get => _updateIntervalMs;
@@ -169,6 +178,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         || _opacity != _initOpacity || _tolerance != _initTolerance
         || _updateIntervalMs != _initInterval
         || _autoRefreshEnabled != _initAutoRefresh
+        || _useGpuProcessing != _initUseGpu
         || _eraseAlgorithmIndex != _initAlgorithm
         || _language != _initLanguage || _hotkeyToggleSheet != _initHotkey;
 
@@ -204,6 +214,7 @@ public class SettingsViewModel : INotifyPropertyChanged
 
         s.UpdateIntervalMs = _updateIntervalMs;
         s.AutoRefreshEnabled = _autoRefreshEnabled;
+        s.UseGpuProcessing = _useGpuProcessing;
         s.UiTheme.Language = _language;
         s.Hotkeys.ToggleSheet = _hotkeyToggleSheet;
 

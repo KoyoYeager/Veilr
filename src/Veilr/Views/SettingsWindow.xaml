@@ -117,7 +117,12 @@
                         <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
                                    Text="{Binding UpdateIntervalDisplay}" FontSize="11"/>
                     </Grid>
-                    <TextBlock x:Name="LblUpdateRateDesc" FontSize="11" Foreground="Gray" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="LblUpdateRateDesc" FontSize="11" Foreground="Gray" Margin="0,4,0,16"/>
+
+                    <!-- GPU acceleration toggle -->
+                    <CheckBox x:Name="ChkGpuAccel" IsChecked="{Binding UseGpuProcessing}"
+                              Margin="0,0,0,4" FontSize="13"/>
+                    <TextBlock x:Name="LblGpuAccelDesc" FontSize="11" Foreground="Gray" Margin="20,0,0,0"/>
                 </StackPanel>
             </TabItem>
 

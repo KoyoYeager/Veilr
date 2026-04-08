@@ -59,6 +59,22 @@ public class SettingsTests
     }
 
     [Fact]
+    public void AppSettings_UseGpuProcessing_DefaultIsTrue()
+    {
+        var settings = new AppSettings();
+        Assert.True(settings.UseGpuProcessing);
+    }
+
+    [Fact]
+    public void AppSettings_UseGpuProcessing_SerializesCorrectly()
+    {
+        var settings = new AppSettings { UseGpuProcessing = false };
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        var restored = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
+        Assert.False(restored!.UseGpuProcessing);
+    }
+
+    [Fact]
     public void AppSettings_UpdateIntervalMs_DefaultIs200()
     {
         var settings = new AppSettings();

@@ -57,6 +57,11 @@ public static class Loc
         ? "8ms ≈ 120fps, 16ms ≈ 60fps, 100ms ≈ 10fps. Lower values use more CPU."
         : "8ms ≈ 120fps、16ms ≈ 60fps、100ms ≈ 10fps。値が小さいほどCPU負荷が増加します";
 
+    public static string GpuAcceleration => _lang == "en" ? "GPU acceleration" : "GPU高速化";
+    public static string GpuAccelerationDesc => _lang == "en"
+        ? "Use GPU compute shaders for faster processing. Disable if you experience issues."
+        : "GPUコンピュートシェーダーで高速処理。問題がある場合はOFFにしてください";
+
     public static string HotkeySettings => _lang == "en" ? "Keyboard shortcut" : "ショートカットキー設定";
     public static string ToggleSheet => _lang == "en" ? "Toggle sheet:" : "シート表示/非表示:";
     public static string HotkeyNote => _lang == "en"
