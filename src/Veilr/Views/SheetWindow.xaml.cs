@@ -150,11 +150,24 @@ public partial class SheetWindow : Window
         EnsureHighResTimer();
 
         // Initialize GPU compute shaders if available and enabled
-        if (_settingsService.Settings.UseGpuProcessing
-            && _dxgiCapture.IsUsingDxgi
-            && _dxgiCapture.Device != null && _dxgiCapture.Context != null)
+        bool wantGpu = _settingsService.Settings.UseGpuProcessing;
+        bool dxgiOk = _dxgiCapture.IsUsingDxgi;
+        bool devOk = _dxgiCapture.Device != null && _dxgiCapture.Context != null;
+        _profLog.Add($"GPU init: want={wantGpu} dxgi={dxgiOk} device={devOk}");
+
+        if (wantGpu && dxgiOk && devOk)
         {
-            _gpuAvailable = _gpuService.Initialize(_dxgiCapture.Device, _dxgiCapture.Context);
+            try
+            {
+                _gpuAvailable = _gpuService.Initialize(_dxgiCapture.Device!, _dxgiCapture.Context!);
+                _profLog.Add($"GPU init result: {_gpuAvailable}" +
+                    (_gpuAvailable ? "" : $" error: {_gpuService.InitError}"));
+            }
+            catch (Exception ex)
+            {
+                _profLog.Add($"GPU init FAILED: {ex.Message}");
+                _gpuAvailable = false;
+            }
         }
 
         while (_captureRunning)
@@ -301,6 +314,7 @@ public partial class SheetWindow : Window
                 $"Window: {w}x{h}",
                 $"WDA_EXCLUDEFROMCAPTURE: {_affinitySet}",
                 $"DXGI Desktop Duplication: {_dxgiCapture.IsUsingDxgi}",
+                $"GPU Compute Shaders: {_gpuAvailable} (requested: {_settingsService.Settings.UseGpuProcessing})",
                 $"AutoRefresh: {_settingsService.Settings.AutoRefreshEnabled}",
                 $"Interval: {_settingsService.Settings.UpdateIntervalMs}ms",
                 $"Render frames: {_renderCount}, avg: {(_renderCount > 0 ? _renderTotalMs / _renderCount : 0):F2}ms",

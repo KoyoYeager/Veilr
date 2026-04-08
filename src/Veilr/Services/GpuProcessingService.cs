@@ -53,6 +53,7 @@ public class GpuProcessingService : IDisposable
     private ID3D11ShaderResourceView? _labLutSRV;
 
     public bool IsAvailable => _initialized;
+    public string? InitError { get; private set; }
 
     /// <summary>
     /// Initialize GPU processing using the provided D3D11 device (shared with DXGI capture).
@@ -75,18 +76,17 @@ public class GpuProcessingService : IDisposable
             _blendCS = CompileShader("Blend");
             _despillCS = CompileShader("Despill");
 
-            // Create constant buffer (max 256 bytes to cover all shaders)
             _paramsCB = device.CreateBuffer(new BufferDescription(256,
                 BindFlags.ConstantBuffer, ResourceUsage.Dynamic, CpuAccessFlags.Write));
 
-            // Upload Lab LUT
             UploadLabLut();
 
             _initialized = true;
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            InitError = ex.Message;
             Cleanup();
             return false;
         }
