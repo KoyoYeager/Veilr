@@ -10,26 +10,18 @@ namespace Veilr.Services;
 
 /// <summary>
 /// GPU-accelerated screen capture via DXGI Desktop Duplication.
-/// Supports multi-monitor: auto-switches Output when window moves between monitors.
+/// Uses primary output; falls back to GDI for other monitors.
 /// </summary>
 public class DxgiCaptureService : IDisposable
 {
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
-    private IDXGIAdapter? _adapter;
     private IDXGIOutputDuplication? _duplication;
     private ID3D11Texture2D? _staging;
+    private int _screenLeft, _screenTop, _screenW, _screenH;
     private int _stagingW, _stagingH;
     private bool _initialized, _failed;
     private bool _lastFrameValid;
-
-    // Current output info
-    private int _currentOutputIndex = -1;
-    private int _outputLeft, _outputTop, _outputW, _outputH;
-
-    // All outputs (monitors) info
-    private readonly List<OutputInfo> _outputs = new();
-    private record OutputInfo(int Index, int Left, int Top, int Right, int Bottom);
 
     private readonly ScreenCaptureService _gdiFallback = new();
 
@@ -37,25 +29,77 @@ public class DxgiCaptureService : IDisposable
     internal ID3D11Device? Device => _device;
     internal ID3D11DeviceContext? Context => _context;
 
+    public bool TryInitialize()
+    {
+        if (_initialized) return !_failed;
+        _initialized = true;
+
+        try
+        {
+            D3D11CreateDevice(
+                null, DriverType.Hardware, DeviceCreationFlags.BgraSupport,
+                null, out _device, out _context);
+
+            if (_device == null) { _failed = true; return false; }
+
+            using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
+            using var adapter = dxgiDevice.GetAdapter();
+
+            var hr = adapter.EnumOutputs(0, out var output);
+            if (hr.Failure || output == null) { _failed = true; return false; }
+
+            using (output)
+            {
+                var bounds = output.Description.DesktopCoordinates;
+                _screenLeft = bounds.Left;
+                _screenTop = bounds.Top;
+                _screenW = bounds.Right - bounds.Left;
+                _screenH = bounds.Bottom - bounds.Top;
+
+                using var output1 = output.QueryInterface<IDXGIOutput1>();
+                _duplication = output1.DuplicateOutput(_device);
+            }
+            return true;
+        }
+        catch
+        {
+            _failed = true;
+            Cleanup();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Check if the given screen region is within the primary output bounds.
+    /// </summary>
+    private bool IsOnPrimaryOutput(int x, int y, int w, int h)
+    {
+        int cx = x + w / 2, cy = y + h / 2;
+        return cx >= _screenLeft && cx < _screenLeft + _screenW
+            && cy >= _screenTop && cy < _screenTop + _screenH;
+    }
+
+    /// <summary>
+    /// Capture directly to a GPU texture (no CPU copy).
+    /// Returns false if window is on another monitor → caller should use CPU fallback.
+    /// </summary>
     internal bool TryCaptureToGpuTexture(int x, int y, int w, int h, ID3D11Texture2D gpuTarget)
     {
-        if (_failed || _context == null) return false;
-        EnsureCorrectOutput(x, y, w, h);
-        if (_duplication == null) return false;
-        uint timeout = _lastFrameValid ? 0u : 16u; // Wait longer after monitor switch
+        if (_failed || _duplication == null || _context == null) return false;
+        if (!IsOnPrimaryOutput(x, y, w, h)) return false;
 
         try
         {
             // Convert to output-local coordinates
-            int localX = x - _outputLeft;
-            int localY = y - _outputTop;
+            int localX = x - _screenLeft;
+            int localY = y - _screenTop;
             if (localX < 0) { w += localX; localX = 0; }
             if (localY < 0) { h += localY; localY = 0; }
-            if (localX + w > _outputW) w = _outputW - localX;
-            if (localY + h > _outputH) h = _outputH - localY;
+            if (localX + w > _screenW) w = _screenW - localX;
+            if (localY + h > _screenH) h = _screenH - localY;
             if (w <= 0 || h <= 0) return false;
 
-            var hr = _duplication.AcquireNextFrame(timeout, out _, out var resource);
+            var hr = _duplication.AcquireNextFrame(0, out _, out var resource);
             if (hr.Failure || resource == null) return _lastFrameValid;
 
             try
@@ -77,112 +121,6 @@ public class DxgiCaptureService : IDisposable
         catch { return false; }
     }
 
-    public bool TryInitialize()
-    {
-        if (_initialized) return !_failed;
-        _initialized = true;
-
-        try
-        {
-            D3D11CreateDevice(
-                null, DriverType.Hardware, DeviceCreationFlags.BgraSupport,
-                null, out _device, out _context);
-
-            if (_device == null) { _failed = true; return false; }
-
-            using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
-            _adapter = dxgiDevice.GetAdapter();
-
-            // Enumerate all outputs (monitors)
-            _outputs.Clear();
-            for (uint i = 0; ; i++)
-            {
-                var hr = _adapter.EnumOutputs(i, out var output);
-                if (hr.Failure || output == null) break;
-                var bounds = output.Description.DesktopCoordinates;
-                _outputs.Add(new OutputInfo((int)i, bounds.Left, bounds.Top, bounds.Right, bounds.Bottom));
-                output.Dispose();
-            }
-
-            if (_outputs.Count == 0) { _failed = true; return false; }
-
-            // Initialize with primary monitor (Output 0)
-            SwitchToOutput(0);
-            return true;
-        }
-        catch
-        {
-            _failed = true;
-            Cleanup();
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Check if window center is on a different monitor, switch if needed.
-    /// </summary>
-    private void EnsureCorrectOutput(int winX, int winY, int winW, int winH)
-    {
-        if (_outputs.Count <= 1 && _duplication != null) return;
-
-        int cx = winX + winW / 2;
-        int cy = winY + winH / 2;
-
-        // Check if center is still on current output AND duplication is active
-        if (_currentOutputIndex >= 0 && _duplication != null)
-        {
-            var cur = _outputs[_currentOutputIndex];
-            if (cx >= cur.Left && cx < cur.Right && cy >= cur.Top && cy < cur.Bottom)
-                return; // still on same monitor, duplication working
-        }
-
-        // Find which output contains the center
-        for (int i = 0; i < _outputs.Count; i++)
-        {
-            var o = _outputs[i];
-            if (cx >= o.Left && cx < o.Right && cy >= o.Top && cy < o.Bottom)
-            {
-                SwitchToOutput(i);
-                return;
-            }
-        }
-    }
-
-    private void SwitchToOutput(int outputIndex)
-    {
-        _duplication?.Dispose();
-        _duplication = null;
-        _lastFrameValid = false;
-
-        try
-        {
-            var hr = _adapter!.EnumOutputs((uint)outputIndex, out var output);
-            if (hr.Failure || output == null)
-            {
-                _currentOutputIndex = -1; // Allow retry next frame
-                return;
-            }
-
-            using (output)
-            {
-                var bounds = output.Description.DesktopCoordinates;
-                _outputLeft = bounds.Left;
-                _outputTop = bounds.Top;
-                _outputW = bounds.Right - bounds.Left;
-                _outputH = bounds.Bottom - bounds.Top;
-
-                using var output1 = output.QueryInterface<IDXGIOutput1>();
-                _duplication = output1.DuplicateOutput(_device!);
-                _currentOutputIndex = outputIndex; // Only update on success
-            }
-        }
-        catch
-        {
-            _duplication = null;
-            _currentOutputIndex = -1; // Allow retry next frame
-        }
-    }
-
     private void EnsureStaging(int w, int h)
     {
         if (w == _stagingW && h == _stagingH && _staging != null) return;
@@ -196,24 +134,25 @@ public class DxgiCaptureService : IDisposable
         _stagingW = w; _stagingH = h;
     }
 
+    /// <summary>
+    /// Capture via DXGI (primary monitor only). Returns false → GDI fallback.
+    /// </summary>
     public bool TryCaptureRegion(int x, int y, int w, int h, byte[] dst, int stride)
     {
-        if (_failed || _context == null) return false;
-        EnsureCorrectOutput(x, y, w, h);
-        if (_duplication == null) return false;
+        if (_failed || _duplication == null || _context == null) return false;
+        if (!IsOnPrimaryOutput(x, y, w, h)) return false;
 
         try
         {
-            int localX = x - _outputLeft;
-            int localY = y - _outputTop;
+            int localX = x - _screenLeft;
+            int localY = y - _screenTop;
             if (localX < 0) { w += localX; localX = 0; }
             if (localY < 0) { h += localY; localY = 0; }
-            if (localX + w > _outputW) w = _outputW - localX;
-            if (localY + h > _outputH) h = _outputH - localY;
+            if (localX + w > _screenW) w = _screenW - localX;
+            if (localY + h > _screenH) h = _screenH - localY;
             if (w <= 0 || h <= 0) return false;
 
-            uint acquireTimeout = _lastFrameValid ? 0u : 16u;
-            var hr = _duplication.AcquireNextFrame(acquireTimeout, out _, out var resource);
+            var hr = _duplication.AcquireNextFrame(0, out _, out var resource);
             if (hr.Failure || resource == null) return _lastFrameValid;
 
             try
@@ -246,14 +185,21 @@ public class DxgiCaptureService : IDisposable
             }
             return true;
         }
-        catch { return false; }
+        catch
+        {
+            _lastFrameValid = false;
+            return false;
+        }
     }
 
+    /// <summary>DXGI capture → FrameBuffer.Src, with GDI fallback.</summary>
     public void CaptureIntoBuffer(FrameBuffer buf, int x, int y)
     {
         if (!_failed && _initialized
             && TryCaptureRegion(x, y, buf.Width, buf.Height, buf.Src, buf.Stride))
             return;
+
+        // GDI fallback (works on any monitor)
         buf.CaptureAndCopyPixels(_gdiFallback, x, y);
     }
 
@@ -261,7 +207,6 @@ public class DxgiCaptureService : IDisposable
     {
         _duplication?.Dispose(); _duplication = null;
         _staging?.Dispose(); _staging = null;
-        _adapter?.Dispose(); _adapter = null;
         _context?.Dispose(); _context = null;
         _device?.Dispose(); _device = null;
     }
