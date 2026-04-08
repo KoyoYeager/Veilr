@@ -1,4 +1,6 @@
 @echo off
+taskkill /IM Veilr.exe /F >nul 2>&1
+timeout /t 2 /nobreak >nul
 dotnet publish src/Veilr -c Release -r win-x64 --self-contained ^
   -p:PublishSingleFile=true ^
   -p:IncludeNativeLibrariesForSelfExtract=true ^
