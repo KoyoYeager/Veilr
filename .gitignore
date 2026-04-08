@@ -28,3 +28,12 @@ x86/
 ## OS
 .DS_Store
 Thumbs.db
+
+## Runtime files
+settings.json
+capture-profile.log
+debug-capture.png
+*.stackdump
+
+## Test outputs
+tests/**/test-*-output.png
