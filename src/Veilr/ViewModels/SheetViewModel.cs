@@ -86,12 +86,22 @@ public class SheetViewModel : INotifyPropertyChanged
             return new SolidColorBrush(Color.FromRgb((byte)rgb[0], (byte)rgb[1], (byte)rgb[2]));
         }
     }
-    public SolidColorBrush BarBackground => _isEraseMode
-        ? new SolidColorBrush(System.Windows.Media.Color.FromArgb(
-            (byte)(_settings.Settings.BarOpacityPercent * 255 / 100), 255, 255, 255))
-        : new SolidColorBrush(System.Windows.Media.Colors.Transparent);
-    public SolidColorBrush BarForeground =>
-        new SolidColorBrush(System.Windows.Media.Colors.Black);
+    public SolidColorBrush BarBackground
+    {
+        get
+        {
+            byte alpha = (byte)(_settings.Settings.BarOpacityPercent * 255 / 100);
+            if (_isEraseMode)
+                return new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 255, 255, 255));
+            // Sheet mode: semi-transparent sheet color for bar
+            var rgb = _settings.Settings.OverlayColor.Rgb;
+            return new SolidColorBrush(System.Windows.Media.Color.FromArgb(
+                alpha, (byte)rgb[0], (byte)rgb[1], (byte)rgb[2]));
+        }
+    }
+    public SolidColorBrush BarForeground => _isEraseMode
+        ? new SolidColorBrush(System.Windows.Media.Colors.Black)
+        : TextForeground;
 
     public BitmapSource? ProcessedImageSource
     {
