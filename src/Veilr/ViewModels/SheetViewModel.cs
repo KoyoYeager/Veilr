@@ -37,9 +37,17 @@ public class SheetViewModel : INotifyPropertyChanged
 
     public bool IsFullScreen => _isFullScreen;
 
-    public string ModeLabel => _isEraseMode
-        ? (_isFullScreen ? Loc.EraseModeFullScreen : Loc.EraseMode)
-        : (_isFullScreen ? Loc.SheetModeFullScreen : Loc.SheetMode);
+    public string ModeLabel
+    {
+        get
+        {
+            string mode = _isEraseMode
+                ? (_isFullScreen ? Loc.EraseModeFullScreen : Loc.EraseMode)
+                : (_isFullScreen ? Loc.SheetModeFullScreen : Loc.SheetMode);
+            string accel = _settings.Settings.UseGpuProcessing ? " [GPU]" : " [CPU]";
+            return mode + accel;
+        }
+    }
 
     public string ModeSwitchLabel => _isEraseMode
         ? Loc.SwitchToSheetMode : Loc.SwitchToEraseMode;
