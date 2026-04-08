@@ -162,9 +162,11 @@ public class SettingsViewModel : INotifyPropertyChanged
     public int UpdateIntervalMs
     {
         get => _updateIntervalMs;
-        set { _updateIntervalMs = Math.Clamp(value, 8, 500); OnPropertyChanged(nameof(UpdateIntervalMs)); OnPropertyChanged(nameof(UpdateIntervalDisplay)); }
+        set { _updateIntervalMs = Math.Clamp(value, 1, 500); OnPropertyChanged(nameof(UpdateIntervalMs)); OnPropertyChanged(nameof(UpdateIntervalDisplay)); }
     }
-    public string UpdateIntervalDisplay => $"{_updateIntervalMs}ms ({1000 / _updateIntervalMs}fps)";
+    public string UpdateIntervalDisplay => _updateIntervalMs <= 1
+        ? "MAX (unlimited)"
+        : $"{_updateIntervalMs}ms ({1000 / _updateIntervalMs}fps)";
 
     // --- Appearance ---
     public string Language { get => _language; set { _language = value; OnPropertyChanged(nameof(Language)); OnPropertyChanged(nameof(LanguageIndex)); } }

@@ -297,9 +297,10 @@ public partial class SheetWindow : Window
 
             if (!autoEnabled) continue;
 
-            // Precise frame pacing: sleep + spin-wait for accurate interval
             int interval = _settingsService.Settings.UpdateIntervalMs;
-            PreciseSleep(interval, _profSw);
+            if (interval > 1)
+                PreciseSleep(interval, _profSw);
+            // interval <= 1: no sleep, run at maximum speed
         }
     }
 

@@ -54,8 +54,8 @@ public static class Loc
         : "指定した間隔で画面を自動的に再キャプチャします";
     public static string UpdateFrequency => _lang == "en" ? "Update rate:" : "更新頻度:";
     public static string UpdateFrequencyDesc => _lang == "en"
-        ? "8ms ≈ 120fps, 16ms ≈ 60fps, 100ms ≈ 10fps. Lower values use more CPU."
-        : "8ms ≈ 120fps、16ms ≈ 60fps、100ms ≈ 10fps。値が小さいほどCPU負荷が増加します";
+        ? "1ms = MAX (unlimited), 8ms = 120fps, 16ms = 60fps. Lower = faster but more CPU/GPU."
+        : "1ms = 最速（無制限）、8ms = 120fps、16ms = 60fps。小さいほどCPU/GPU負荷増";
 
     public static string GpuAcceleration => _lang == "en" ? "GPU acceleration" : "GPU高速化";
     public static string GpuAccelerationDesc => _lang == "en"

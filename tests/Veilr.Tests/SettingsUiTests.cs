@@ -90,9 +90,9 @@ public class SettingsUiTests
         // Default 200ms = 5fps
         Assert.Equal("200ms (5fps)", vm.UpdateIntervalDisplay);
 
-        // Change to 8ms = 125fps
-        vm.UpdateIntervalMs = 8;
-        Assert.Equal("8ms (125fps)", vm.UpdateIntervalDisplay);
+        // Change to 1ms = MAX
+        vm.UpdateIntervalMs = 1;
+        Assert.Equal("MAX (unlimited)", vm.UpdateIntervalDisplay);
 
         // Change to 100ms = 10fps
         vm.UpdateIntervalMs = 100;
@@ -149,8 +149,8 @@ public class SettingsUiTests
         var ss = new SettingsService();
         var vm = new Veilr.ViewModels.SettingsViewModel(ss);
 
-        vm.UpdateIntervalMs = 3; // below minimum
-        Assert.Equal(8, vm.UpdateIntervalMs);
+        vm.UpdateIntervalMs = 0; // below minimum
+        Assert.Equal(1, vm.UpdateIntervalMs);
 
         vm.UpdateIntervalMs = 999; // above maximum
         Assert.Equal(500, vm.UpdateIntervalMs);
