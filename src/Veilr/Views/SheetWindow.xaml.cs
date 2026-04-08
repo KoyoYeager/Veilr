@@ -457,6 +457,12 @@ public partial class SheetWindow : Window
         _resizeDebounce.Start();
     }
 
+    private void BtnSwitchMonitor_Click(object sender, RoutedEventArgs e)
+    {
+        _dxgiCapture.CycleOutput();
+        RequestCapture();
+    }
+
     private void BtnMode_Click(object sender, RoutedEventArgs e)
     {
         _viewModel.ToggleMode();

@@ -23,9 +23,13 @@ public class DxgiCaptureService : IDisposable
     private bool _initialized, _failed;
     private bool _lastFrameValid;
 
+    private IDXGIAdapter? _adapter;
+    private int _currentOutputIndex;
     private readonly ScreenCaptureService _gdiFallback = new();
 
     public bool IsUsingDxgi => _initialized && !_failed;
+    public int CurrentOutputIndex => _currentOutputIndex;
+    public int OutputCount { get; private set; }
     internal ID3D11Device? Device => _device;
     internal ID3D11DeviceContext? Context => _context;
 
@@ -43,23 +47,19 @@ public class DxgiCaptureService : IDisposable
             if (_device == null) { _failed = true; return false; }
 
             using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
-            using var adapter = dxgiDevice.GetAdapter();
+            _adapter = dxgiDevice.GetAdapter();
 
-            var hr = adapter.EnumOutputs(0, out var output);
-            if (hr.Failure || output == null) { _failed = true; return false; }
-
-            using (output)
+            // Count outputs
+            for (uint i = 0; ; i++)
             {
-                var bounds = output.Description.DesktopCoordinates;
-                _screenLeft = bounds.Left;
-                _screenTop = bounds.Top;
-                _screenW = bounds.Right - bounds.Left;
-                _screenH = bounds.Bottom - bounds.Top;
-
-                using var output1 = output.QueryInterface<IDXGIOutput1>();
-                _duplication = output1.DuplicateOutput(_device);
+                var ehr = _adapter.EnumOutputs(i, out var eo);
+                if (ehr.Failure || eo == null) break;
+                eo.Dispose();
+                OutputCount = (int)i + 1;
             }
-            return true;
+
+            SwitchToOutput(0);
+            return _duplication != null;
         }
         catch
         {
@@ -70,23 +70,12 @@ public class DxgiCaptureService : IDisposable
     }
 
     /// <summary>
-    /// Check if the given screen region is within the primary output bounds.
-    /// </summary>
-    private bool IsOnPrimaryOutput(int x, int y, int w, int h)
-    {
-        int cx = x + w / 2, cy = y + h / 2;
-        return cx >= _screenLeft && cx < _screenLeft + _screenW
-            && cy >= _screenTop && cy < _screenTop + _screenH;
-    }
-
-    /// <summary>
     /// Capture directly to a GPU texture (no CPU copy).
-    /// Returns false if window is on another monitor → caller should use CPU fallback.
+    /// Coordinates are converted to current output-local.
     /// </summary>
     internal bool TryCaptureToGpuTexture(int x, int y, int w, int h, ID3D11Texture2D gpuTarget)
     {
         if (_failed || _duplication == null || _context == null) return false;
-        if (!IsOnPrimaryOutput(x, y, w, h)) return false;
 
         try
         {
@@ -121,6 +110,47 @@ public class DxgiCaptureService : IDisposable
         catch { return false; }
     }
 
+    /// <summary>Switch to a specific output (monitor). Called by UI button.</summary>
+    public void SwitchToOutput(int outputIndex)
+    {
+        _duplication?.Dispose();
+        _duplication = null;
+        _lastFrameValid = false;
+
+        try
+        {
+            if (_adapter == null) return;
+            var hr = _adapter.EnumOutputs((uint)outputIndex, out var output);
+            if (hr.Failure || output == null) return;
+
+            using (output)
+            {
+                var bounds = output.Description.DesktopCoordinates;
+                _screenLeft = bounds.Left;
+                _screenTop = bounds.Top;
+                _screenW = bounds.Right - bounds.Left;
+                _screenH = bounds.Bottom - bounds.Top;
+                _currentOutputIndex = outputIndex;
+
+                using var output1 = output.QueryInterface<IDXGIOutput1>();
+                _duplication = output1.DuplicateOutput(_device!);
+            }
+        }
+        catch
+        {
+            _duplication = null;
+        }
+    }
+
+    /// <summary>Cycle to next output. Returns new output index.</summary>
+    public int CycleOutput()
+    {
+        if (OutputCount <= 1) return 0;
+        int next = (_currentOutputIndex + 1) % OutputCount;
+        SwitchToOutput(next);
+        return next;
+    }
+
     private void EnsureStaging(int w, int h)
     {
         if (w == _stagingW && h == _stagingH && _staging != null) return;
@@ -140,7 +170,6 @@ public class DxgiCaptureService : IDisposable
     public bool TryCaptureRegion(int x, int y, int w, int h, byte[] dst, int stride)
     {
         if (_failed || _duplication == null || _context == null) return false;
-        if (!IsOnPrimaryOutput(x, y, w, h)) return false;
 
         try
         {
@@ -207,6 +236,7 @@ public class DxgiCaptureService : IDisposable
     {
         _duplication?.Dispose(); _duplication = null;
         _staging?.Dispose(); _staging = null;
+        _adapter?.Dispose(); _adapter = null;
         _context?.Dispose(); _context = null;
         _device?.Dispose(); _device = null;
     }

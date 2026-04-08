@@ -47,6 +47,8 @@
                             TextElement.Foreground="{Binding BarForeground}">
                     <Button x:Name="BtnMode" Content="{Binding ModeSwitchLabel}"
                             Click="BtnMode_Click" Style="{StaticResource ToolbarButton}"/>
+                    <Button Content="{Binding MonitorLabel}" Click="BtnSwitchMonitor_Click"
+                            Style="{StaticResource ToolbarButton}"/>
                     <Button Content="{Binding FullScreenLabel}" Click="BtnFullScreen_Click"
                             Style="{StaticResource ToolbarButton}"/>
                     <Button Content="{Binding ExportLabel}" Click="BtnExport_Click"

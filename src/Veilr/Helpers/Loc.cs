@@ -12,6 +12,7 @@ public static class Loc
     public static string EraseModeFullScreen => _lang == "en" ? "Erase mode (full screen)" : "消去モード（全画面）";
     public static string SwitchToEraseMode => _lang == "en" ? "Switch to erase" : "消去モードに切替";
     public static string SwitchToSheetMode => _lang == "en" ? "Switch to sheet" : "シートモードに切替";
+    public static string Monitor => _lang == "en" ? "Monitor" : "モニター";
     public static string FullScreen => _lang == "en" ? "🖥 Full screen" : "🖥 全画面";
     public static string ExitFullScreen => _lang == "en" ? "🖥 Exit" : "🖥 解除";
     public static string Export => _lang == "en" ? "📷 Save" : "📷 保存";
