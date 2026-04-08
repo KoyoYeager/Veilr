@@ -1,4 +1,4 @@
-// MultiplyBlend.hlsl — Sheet mode: dst = src * sheetColor / 255
+// MultiplyBlend.hlsl - Sheet mode: dst = src * sheetColor / 255
 cbuffer Params : register(b0)
 {
     float4 sheetColor;  // .xyz = R,G,B normalized (0-1), .w unused

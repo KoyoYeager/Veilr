@@ -1,4 +1,4 @@
-// MaskLabMask.hlsl — Binary mask creation + conditional dilation
+// MaskLabMask.hlsl - Binary mask creation + conditional dilation
 cbuffer Params : register(b0)
 {
     float3 targetLab;

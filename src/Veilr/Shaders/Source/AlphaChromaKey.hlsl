@@ -1,8 +1,8 @@
-// AlphaChromaKey.hlsl — Pass 1: Lab color distance → soft alpha (0.0-1.0)
+// AlphaChromaKey.hlsl - Pass 1: Lab color distance to soft alpha (0.0-1.0)
 cbuffer Params : register(b0)
 {
     float3 targetLab;       // target L, a, b
-    float targetChroma;     // sqrt(a²+b²)
+    float targetChroma;     // sqrt(a*a+b*b)
     float targetAngle;      // atan2(b, a)
     float similarity;       // inner radius
     float smoothness;       // transition width
@@ -11,15 +11,15 @@ cbuffer Params : register(b0)
     int2 dims;
 };
 
-StructuredBuffer<float3> labLut : register(t0); // 64³ entries
-Texture2D<float4> srcTexture : register(t1);    // BGRA normalized
+StructuredBuffer<float3> labLut : register(t0); // 64^3 entries
+Texture2D<float4> srcTexture : register(t1);
 RWTexture2D<float> alphaOut : register(u0);
 
 static const float PI = 3.14159265f;
 
 float3 rgbToLabFast(float3 rgb)
 {
-    // 6-bit quantize (0-255 → 0-63)
+    // 6-bit quantize (0-255 to 0-63)
     int ri = (int)(rgb.r * 255.0f) >> 2;
     int gi = (int)(rgb.g * 255.0f) >> 2;
     int bi = (int)(rgb.b * 255.0f) >> 2;
@@ -32,8 +32,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)dims.x || id.y >= (uint)dims.y) return;
 
-    float4 src = srcTexture[id.xy]; // BGRA → src.r=B, src.g=G, src.b=R, src.a=A
-    // Vortice B8G8R8A8_UNorm: .r=R, .g=G, .b=B when read as float4
+    float4 src = srcTexture[id.xy];
     float3 lab = rgbToLabFast(src.rgb);
 
     float dA = lab.y - targetLab.y;

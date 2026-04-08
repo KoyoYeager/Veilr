@@ -1,4 +1,4 @@
-// Despill.hlsl — Graduated despill: suppress target color cast near keyed edges
+// Despill.hlsl - Graduated despill: suppress target color cast near keyed edges
 cbuffer Params : register(b0)
 {
     float3 targetNormRGB; // target color normalized (0-1)
@@ -9,7 +9,7 @@ Texture2D<float> alphaTexture : register(t0);
 RWTexture2D<float4> dstTexture : register(u0);
 
 // Use groupshared memory for 13x13 neighborhood alpha lookup
-// Thread group = 8x8, halo = 6 each side → tile = 20x20
+// Thread group = 8x8, halo = 6 each side, tile = 20x20
 groupshared float sharedAlpha[20][20];
 
 [numthreads(8, 8, 1)]

@@ -1,4 +1,4 @@
-// Blend.hlsl — Alpha blend: dst = src * alpha + bg * (1 - alpha)
+// Blend.hlsl - Alpha blend: dst = src * alpha + bg * (1 - alpha)
 cbuffer Params : register(b0)
 {
     int2 dims;

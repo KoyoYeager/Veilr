@@ -1,4 +1,4 @@
-// JfaStep.hlsl — One JFA propagation step (dispatch log2(max(w,h)) times)
+// JfaStep.hlsl - One JFA propagation step (dispatch log2(max(w,h)) times)
 cbuffer Params : register(b0)
 {
     int stepSize;

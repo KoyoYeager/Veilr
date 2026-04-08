@@ -1,4 +1,4 @@
-// JfaInit.hlsl — Initialize JFA seed map from alpha texture
+// JfaInit.hlsl - Initialize JFA seed map from alpha texture
 cbuffer Params : register(b0)
 {
     int2 dims;

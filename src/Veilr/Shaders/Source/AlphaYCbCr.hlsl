@@ -1,4 +1,4 @@
-// AlphaYCbCr.hlsl — Pass 1: YCbCr color distance → soft alpha
+// AlphaYCbCr.hlsl - Pass 1: YCbCr color distance to soft alpha
 cbuffer Params : register(b0)
 {
     float targetCb;
