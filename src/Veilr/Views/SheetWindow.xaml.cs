@@ -172,6 +172,15 @@ public partial class SheetWindow : Window
 
         while (_captureRunning)
         {
+            // Handle monitor switch request (must run on capture thread for D3D11 thread safety)
+            if (_switchMonitorRequested)
+            {
+                _switchMonitorRequested = false;
+                _dxgiCapture.CycleOutput();
+                _oneshotRequested = true;
+                _profLog.Add($"Monitor switched to Output {_dxgiCapture.CurrentOutputIndex} (of {_dxgiCapture.OutputCount})");
+            }
+
             bool autoEnabled = _settingsService.Settings.AutoRefreshEnabled;
             bool shouldCapture = _oneshotRequested || autoEnabled;
 
@@ -457,10 +466,11 @@ public partial class SheetWindow : Window
         _resizeDebounce.Start();
     }
 
+    private volatile bool _switchMonitorRequested;
+
     private void BtnSwitchMonitor_Click(object sender, RoutedEventArgs e)
     {
-        _dxgiCapture.CycleOutput();
-        RequestCapture();
+        _switchMonitorRequested = true;
     }
 
     private void BtnMode_Click(object sender, RoutedEventArgs e)

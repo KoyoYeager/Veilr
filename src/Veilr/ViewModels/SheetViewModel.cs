@@ -44,7 +44,7 @@ public class SheetViewModel : INotifyPropertyChanged
     public string ModeSwitchLabel => _isEraseMode
         ? Loc.SwitchToSheetMode : Loc.SwitchToEraseMode;
 
-    public string MonitorLabel => Loc.Monitor;
+    public string MonitorLabel => Loc.SwitchMonitor;
     public string FullScreenLabel => _isFullScreen ? Loc.ExitFullScreen : Loc.FullScreen;
     public string ExportLabel => Helpers.Loc.Export;
     public string SettingsLabel => Helpers.Loc.Settings;
