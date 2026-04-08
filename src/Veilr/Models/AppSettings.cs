@@ -11,6 +11,7 @@ public class AppSettings
     public OverlayColorSettings OverlayColor { get; set; } = new();
     public int UpdateIntervalMs { get; set; } = 200;
     public bool AutoRefreshEnabled { get; set; } = false;
+    public bool UseGpuProcessing { get; set; } = true;
     public HotkeySettings Hotkeys { get; set; } = new();
     public ThemeSettings UiTheme { get; set; } = new();
 

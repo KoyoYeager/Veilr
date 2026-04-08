@@ -616,6 +616,11 @@ public class ColorDetectorService
     private static double LabF(double t) =>
         t > 0.008856 ? Math.Cbrt(t) : (7.787 * t + 16.0 / 116.0);
 
+    /// <summary>Public Lab conversion for GPU service LUT upload.</summary>
+    public static void RgbToLabPublic(int r, int g, int b,
+        out double L, out double labA, out double labB) =>
+        RgbToLabFull(r, g, b, out L, out labA, out labB);
+
     // ══════════════════════════════════════════════════════════
     //  Zero-allocation API: works with pre-allocated FrameBuffer
     //  buf.Src must be populated before calling.

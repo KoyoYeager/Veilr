@@ -22,6 +22,8 @@ public partial class SheetWindow : Window
     private readonly ScreenCaptureService _captureService = new();
     private readonly DxgiCaptureService _dxgiCapture = new();
     private readonly ColorDetectorService _detectorService = new();
+    private readonly GpuProcessingService _gpuService = new();
+    private bool _gpuAvailable;
 
     // Debounce timer for resize
     private DispatcherTimer? _resizeDebounce;
@@ -147,6 +149,14 @@ public partial class SheetWindow : Window
         _dxgiCapture.TryInitialize();
         EnsureHighResTimer();
 
+        // Initialize GPU compute shaders if available and enabled
+        if (_settingsService.Settings.UseGpuProcessing
+            && _dxgiCapture.IsUsingDxgi
+            && _dxgiCapture.Device != null && _dxgiCapture.Context != null)
+        {
+            _gpuAvailable = _gpuService.Initialize(_dxgiCapture.Device, _dxgiCapture.Context);
+        }
+
         while (_captureRunning)
         {
             bool autoEnabled = _settingsService.Settings.AutoRefreshEnabled;
@@ -171,24 +181,67 @@ public partial class SheetWindow : Window
                 int stride = w * 4;
                 _back.EnsureCapacity(w, h, stride);
 
-                // --- Capture (DXGI with GDI fallback) ---
-                long t0 = _profSw.ElapsedTicks;
-                _back.CaptureX = x;
-                _back.CaptureY = y;
-                _dxgiCapture.CaptureIntoBuffer(_back, x, y);
-                long t1 = _profSw.ElapsedTicks;
-
-                // --- Process ---
                 var settings = _settingsService.Settings;
                 bool isErase;
                 try { isErase = _viewModel.IsEraseMode; } catch { isErase = false; }
+                bool useGpu = _gpuAvailable && settings.UseGpuProcessing && _gpuService.IsAvailable;
 
-                long t2 = _profSw.ElapsedTicks;
-                if (isErase)
-                    _detectorService.EraseColorInto(_back, settings.TargetColor);
+                long t0 = _profSw.ElapsedTicks;
+                long t1, t2, t3;
+
+                if (useGpu)
+                {
+                    // GPU path: capture stays on GPU, process on GPU, single read-back
+                    _back.EnsureCapacity(w, h, stride);
+                    _gpuService.EnsureTexturesPublic(w, h);
+
+                    // Capture directly to GPU texture (zero CPU copy)
+                    _dxgiCapture.TryCaptureToGpuTexture(x, y, w, h, _gpuService.GetSrcTexture()!);
+                    t1 = _profSw.ElapsedTicks;
+
+                    t2 = t1;
+                    if (isErase)
+                    {
+                        switch (settings.TargetColor.EraseAlgorithm)
+                        {
+                            case "labmask":
+                                _gpuService.ProcessEraseLabMask(
+                                    _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                break;
+                            case "ycbcr":
+                                _gpuService.ProcessEraseYCbCr(
+                                    _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                break;
+                            default:
+                                _gpuService.ProcessEraseChromaKey(
+                                    _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        _gpuService.ProcessMultiplyBlend(
+                            _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
+                    }
+                    // Read result back to CPU
+                    _gpuService.ReadResultToCpu(_back.Dst, w, h);
+                    t3 = _profSw.ElapsedTicks;
+                }
                 else
-                    _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
-                long t3 = _profSw.ElapsedTicks;
+                {
+                    // CPU path (fallback)
+                    _back.CaptureX = x;
+                    _back.CaptureY = y;
+                    _dxgiCapture.CaptureIntoBuffer(_back, x, y);
+                    t1 = _profSw.ElapsedTicks;
+
+                    t2 = t1;
+                    if (isErase)
+                        _detectorService.EraseColorInto(_back, settings.TargetColor);
+                    else
+                        _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+                    t3 = _profSw.ElapsedTicks;
+                }
 
                 // --- Swap (overwrite front buffer — UI picks up latest) ---
                 lock (_swapLock)
@@ -211,10 +264,12 @@ public partial class SheetWindow : Window
                     double totalMs = (t4 - t0) / freq * 1000;
                     double intervalMs = _frameIntervalSw.Elapsed.TotalMilliseconds;
                     _frameIntervalSw.Restart();
+                    bool useGpuLog = _gpuAvailable && _settingsService.Settings.UseGpuProcessing;
                     _profLog.Add($"Frame {_profFrameCount:D3}  " +
                         $"Cap:{capMs,5:F1}ms  Proc:{procMs,5:F1}ms  " +
                         $"Total:{totalMs,5:F1}ms  Interval:{intervalMs,6:F1}ms  " +
-                        $"({(intervalMs > 0 ? 1000/intervalMs : 0),5:F0}fps)");
+                        $"({(intervalMs > 0 ? 1000/intervalMs : 0),5:F0}fps) " +
+                        $"GPU:{useGpuLog}");
                     _profFrameCount++;
 
                     if (_profFrameCount == PROF_MAX_FRAMES)
@@ -466,6 +521,7 @@ public partial class SheetWindow : Window
     {
         StopCaptureThread();
         ReleaseHighResTimer();
+        _gpuService.Dispose();
         _dxgiCapture.Dispose();
         CompositionTarget.Rendering -= OnRendering;
         SavePosition();

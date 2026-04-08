@@ -27,6 +27,47 @@ public class DxgiCaptureService : IDisposable
 
     public bool IsUsingDxgi => _initialized && !_failed;
 
+    /// <summary>Expose D3D11 device for GPU processing service (same device = zero-copy).</summary>
+    internal ID3D11Device? Device => _device;
+    internal ID3D11DeviceContext? Context => _context;
+
+    /// <summary>
+    /// Capture directly to a GPU texture (no CPU copy).
+    /// Returns true if a new frame was captured.
+    /// </summary>
+    internal bool TryCaptureToGpuTexture(int x, int y, int w, int h, ID3D11Texture2D gpuTarget)
+    {
+        if (_failed || _duplication == null || _context == null) return false;
+        try
+        {
+            if (x < 0) { w += x; x = 0; }
+            if (y < 0) { h += y; y = 0; }
+            if (x + w > _screenW) w = _screenW - x;
+            if (y + h > _screenH) h = _screenH - y;
+            if (w <= 0 || h <= 0) return false;
+
+            var hr = _duplication.AcquireNextFrame(0, out _, out var resource);
+            if (hr.Failure || resource == null) return _lastFrameValid;
+
+            try
+            {
+                using var srcTex = resource.QueryInterface<ID3D11Texture2D>();
+                _context.CopySubresourceRegion(
+                    gpuTarget, 0, 0, 0, 0,
+                    srcTex, 0,
+                    new Box(x, y, 0, x + w, y + h, 1));
+                _lastFrameValid = true;
+            }
+            finally
+            {
+                resource.Dispose();
+                _duplication.ReleaseFrame();
+            }
+            return true;
+        }
+        catch { return false; }
+    }
+
     public bool TryInitialize()
     {
         if (_initialized) return !_failed;
