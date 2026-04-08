@@ -202,7 +202,11 @@ public partial class SheetWindow : Window
                 long t0 = _profSw.ElapsedTicks;
                 long t1, t2, t3;
 
-                if (useGpu)
+                // GPU is only safe for MultiplyBlend (sheet mode).
+                // Erase mode GPU shaders have SRV/UAV binding conflicts → always use CPU.
+                bool useGpuThisFrame = useGpu && !isErase;
+
+                if (useGpuThisFrame)
                 {
                     try
                     {
@@ -211,46 +215,18 @@ public partial class SheetWindow : Window
                         _dxgiCapture.TryCaptureToGpuTexture(x, y, w, h, _gpuService.GetSrcTexture()!);
                         t1 = _profSw.ElapsedTicks;
                         t2 = t1;
-
-                        if (isErase)
-                        {
-                            switch (settings.TargetColor.EraseAlgorithm)
-                            {
-                                case "labmask":
-                                    _gpuService.ProcessEraseLabMask(
-                                        _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
-                                    break;
-                                case "ycbcr":
-                                    _gpuService.ProcessEraseYCbCr(
-                                        _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
-                                    break;
-                                default:
-                                    _gpuService.ProcessEraseChromaKey(
-                                        _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
-                                    break;
-                            }
-                        }
-                        else
-                        {
-                            _gpuService.ProcessMultiplyBlend(
-                                _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
-                        }
+                        _gpuService.ProcessMultiplyBlend(
+                            _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
                         _gpuService.ReadResultToCpu(_back.Dst, w, h);
                         t3 = _profSw.ElapsedTicks;
                     }
                     catch (Exception gpuEx)
                     {
-                        // GPU failed — disable and fall back to CPU permanently
                         _gpuAvailable = false;
-                        useGpu = false;
                         _profLog.Add($"GPU ERROR (auto-fallback to CPU): {gpuEx.Message}");
-                        // Run CPU path for this frame
                         _dxgiCapture.CaptureIntoBuffer(_back, x, y);
                         t1 = _profSw.ElapsedTicks; t2 = t1;
-                        if (isErase)
-                            _detectorService.EraseColorInto(_back, settings.TargetColor);
-                        else
-                            _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+                        _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
                         t3 = _profSw.ElapsedTicks;
                     }
                 }
@@ -291,7 +267,7 @@ public partial class SheetWindow : Window
                     double totalMs = (t4 - t0) / freq * 1000;
                     double intervalMs = _frameIntervalSw.Elapsed.TotalMilliseconds;
                     _frameIntervalSw.Restart();
-                    bool useGpuLog = _gpuAvailable && _settingsService.Settings.UseGpuProcessing;
+                    bool useGpuLog = useGpuThisFrame;
                     _profLog.Add($"Frame {_profFrameCount:D3}  " +
                         $"Cap:{capMs,5:F1}ms  Proc:{procMs,5:F1}ms  " +
                         $"Total:{totalMs,5:F1}ms  Interval:{intervalMs,6:F1}ms  " +
