@@ -88,7 +88,8 @@ public class SheetViewModel : INotifyPropertyChanged
     }
     public SolidColorBrush BarBackground =>
         new SolidColorBrush(System.Windows.Media.Colors.Transparent);
-    public SolidColorBrush BarForeground => TextForeground;
+    public SolidColorBrush BarForeground =>
+        new SolidColorBrush(System.Windows.Media.Colors.Black);
 
     public BitmapSource? ProcessedImageSource
     {
