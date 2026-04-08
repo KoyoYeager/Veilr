@@ -202,9 +202,7 @@ public partial class SheetWindow : Window
                 long t0 = _profSw.ElapsedTicks;
                 long t1, t2, t3;
 
-                // GPU is only safe for MultiplyBlend (sheet mode).
-                // Erase mode GPU shaders have SRV/UAV binding conflicts → always use CPU.
-                bool useGpuThisFrame = useGpu && !isErase;
+                bool useGpuThisFrame = useGpu;
 
                 if (useGpuThisFrame)
                 {
@@ -219,29 +217,53 @@ public partial class SheetWindow : Window
 
                         if (gpuCaptured)
                         {
-                            _gpuService.ProcessMultiplyBlend(
-                                _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
+                            if (isErase)
+                            {
+                                switch (settings.TargetColor.EraseAlgorithm)
+                                {
+                                    case "labmask":
+                                        _gpuService.ProcessEraseLabMask(
+                                            _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                        break;
+                                    case "ycbcr":
+                                        _gpuService.ProcessEraseYCbCr(
+                                            _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                        break;
+                                    default:
+                                        _gpuService.ProcessEraseChromaKey(
+                                            _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                        break;
+                                }
+                            }
+                            else
+                            {
+                                _gpuService.ProcessMultiplyBlend(
+                                    _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
+                            }
                             _gpuService.ReadResultToCpu(_back.Dst, w, h);
                             t3 = _profSw.ElapsedTicks;
                         }
                         else
                         {
-                            // DXGI capture failed (monitor switch etc.) → CPU fallback this frame
-                            _dxgiCapture.CaptureIntoBuffer(_back, x, y);
-                            t1 = _profSw.ElapsedTicks; t2 = t1;
-                            _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
-                            t3 = _profSw.ElapsedTicks;
+                            // DXGI capture failed → CPU fallback this frame
+                            goto cpuFallback;
                         }
                     }
                     catch (Exception gpuEx)
                     {
                         _gpuAvailable = false;
+                        _profLog.AddRange(_gpuService.DebugLog);
                         _profLog.Add($"GPU ERROR (auto-fallback to CPU): {gpuEx.Message}");
-                        _dxgiCapture.CaptureIntoBuffer(_back, x, y);
-                        t1 = _profSw.ElapsedTicks; t2 = t1;
-                        _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
-                        t3 = _profSw.ElapsedTicks;
+                        goto cpuFallback;
                     }
+                    goto afterProcess;
+                    cpuFallback:
+                    _dxgiCapture.CaptureIntoBuffer(_back, x, y);
+                    t1 = _profSw.ElapsedTicks; t2 = t1;
+                    if (isErase) _detectorService.EraseColorInto(_back, settings.TargetColor);
+                    else _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+                    t3 = _profSw.ElapsedTicks;
+                    afterProcess:;
                 }
                 else
                 {
@@ -289,7 +311,11 @@ public partial class SheetWindow : Window
                     _profFrameCount++;
 
                     if (_profFrameCount == PROF_MAX_FRAMES)
+                    {
+                        if (_gpuService.DebugLog.Count > 0)
+                            _profLog.AddRange(_gpuService.DebugLog);
                         FlushProfileLog(w, h);
+                    }
                 }
             }
             catch (Exception ex)

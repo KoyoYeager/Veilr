@@ -54,6 +54,7 @@ public class GpuProcessingService : IDisposable
 
     public bool IsAvailable => _initialized;
     public string? InitError { get; private set; }
+    public List<string> DebugLog { get; } = new();
 
     /// <summary>
     /// Initialize GPU processing using the provided D3D11 device (shared with DXGI capture).
@@ -189,6 +190,7 @@ public class GpuProcessingService : IDisposable
         p[9] = I(w); p[10] = I(h);
         UpdateParams(p);
 
+        Log("CK Pass 1: Alpha start");
         _context.CSSetShader(_alphaChromaKeyCS);
         _context.CSSetShaderResource(0, _labLutSRV);
         _context.CSSetShaderResource(1, _srcSRV);
@@ -196,18 +198,17 @@ public class GpuProcessingService : IDisposable
         _context.CSSetConstantBuffer(0, _paramsCB);
         Dispatch(w, h);
         ClearBindings();
+        Log("CK Pass 1: Alpha done");
 
-        // Pass 2: JFA background fill
+        Log("CK Pass 2: JFA start");
         RunJfa(w, h);
+        Log("CK Pass 2: JFA done");
 
-        // Pass 3: Blend
+        Log("CK Pass 3: Blend start");
         RunBlend(w, h);
+        Log("CK Pass 3: Blend done");
 
-        // Pass 4: Despill
-        // HLSL layout: float3 targetNormRGB(0-11), int2 dims(12-19)
-        // BUT float3 + int2: int2 won't cross 16-byte boundary at offset 12+8=20, within row 0-15? No!
-        // float3 takes 12 bytes (offset 0-11). Next is int2 (8 bytes) at offset 12, but 12+8=20 crosses
-        // the 16-byte boundary. So HLSL packs int2 at offset 16.
+        Log("CK Pass 4: Despill start");
         var dp = new float[64];
         dp[0] = target.Rgb[0] / 255f; dp[1] = target.Rgb[1] / 255f; dp[2] = target.Rgb[2] / 255f;
         dp[4] = I(w); dp[5] = I(h);
@@ -410,7 +411,13 @@ public class GpuProcessingService : IDisposable
     }
 
     /// <summary>Pack int as float bits for HLSL int constant buffer.</summary>
-    private static float I(int v) => I(v);
+    private static float I(int v) => BitConverter.Int32BitsToSingle(v);
+
+    private void Log(string msg)
+    {
+        if (DebugLog.Count < 200)
+            DebugLog.Add($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
+    }
 
     private void UpdateParams(float[] data)
     {
@@ -424,11 +431,15 @@ public class GpuProcessingService : IDisposable
         _context!.Dispatch((uint)((w + 7) / 8), (uint)((h + 7) / 8), 1);
     }
 
+    private static readonly ID3D11ShaderResourceView[] _nullSrvs = new ID3D11ShaderResourceView[4];
+    private static readonly ID3D11UnorderedAccessView[] _nullUavs = new ID3D11UnorderedAccessView[3];
+
     private void ClearBindings()
     {
         _context!.CSSetShader(null);
-        _context.CSSetShaderResources(0, new ID3D11ShaderResourceView?[] { null, null, null });
-        _context.CSSetUnorderedAccessViews(0, new ID3D11UnorderedAccessView?[] { null, null });
+        _context.CSSetShaderResources(0, _nullSrvs);
+        _context.CSSetUnorderedAccessViews(0, _nullUavs);
+        _context.CSSetConstantBuffer(0, null);
     }
 
     private void CopySrcToGpu(ID3D11Texture2D srcCapture, int w, int h)
