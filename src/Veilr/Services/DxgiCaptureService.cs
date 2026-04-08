@@ -42,7 +42,7 @@ public class DxgiCaptureService : IDisposable
         {
             D3D11CreateDevice(
                 null, DriverType.Hardware, DeviceCreationFlags.BgraSupport,
-                null, out _device, out _context);
+                Array.Empty<FeatureLevel>(), out _device, out _context);
 
             if (_device == null) { _failed = true; return false; }
 
