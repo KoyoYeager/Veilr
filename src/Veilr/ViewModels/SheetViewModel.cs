@@ -77,9 +77,15 @@ public class SheetViewModel : INotifyPropertyChanged
 
     // Erase mode: window frame + white bars + black text
     // No border thickness to avoid content offset. Bars provide visual frame.
-    public Thickness WindowBorderThickness => new Thickness(0);
-    public SolidColorBrush WindowBorderBrush =>
-        new SolidColorBrush(System.Windows.Media.Colors.Transparent);
+    public Thickness WindowBorderThickness => new Thickness(1);
+    public SolidColorBrush WindowBorderBrush
+    {
+        get
+        {
+            var rgb = _settings.Settings.OverlayColor.Rgb;
+            return new SolidColorBrush(Color.FromRgb((byte)rgb[0], (byte)rgb[1], (byte)rgb[2]));
+        }
+    }
     public SolidColorBrush BarBackground => _isEraseMode
         ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255))
         : new SolidColorBrush(System.Windows.Media.Colors.Transparent);
@@ -150,6 +156,7 @@ public class SheetViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SheetBrush));
         OnPropertyChanged(nameof(SheetOpacity));
         OnPropertyChanged(nameof(TextForeground));
+        OnPropertyChanged(nameof(WindowBorderBrush));
     }
 
     private void OnPropertyChanged(string name) =>
