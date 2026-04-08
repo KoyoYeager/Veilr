@@ -42,6 +42,7 @@ public class DxgiCaptureService : IDisposable
         if (_failed || _context == null) return false;
         EnsureCorrectOutput(x, y, w, h);
         if (_duplication == null) return false;
+        uint timeout = _lastFrameValid ? 0u : 16u; // Wait longer after monitor switch
 
         try
         {
@@ -54,7 +55,7 @@ public class DxgiCaptureService : IDisposable
             if (localY + h > _outputH) h = _outputH - localY;
             if (w <= 0 || h <= 0) return false;
 
-            var hr = _duplication.AcquireNextFrame(0, out _, out var resource);
+            var hr = _duplication.AcquireNextFrame(timeout, out _, out var resource);
             if (hr.Failure || resource == null) return _lastFrameValid;
 
             try
@@ -122,17 +123,17 @@ public class DxgiCaptureService : IDisposable
     /// </summary>
     private void EnsureCorrectOutput(int winX, int winY, int winW, int winH)
     {
-        if (_outputs.Count <= 1) return; // single monitor, nothing to switch
+        if (_outputs.Count <= 1 && _duplication != null) return;
 
         int cx = winX + winW / 2;
         int cy = winY + winH / 2;
 
-        // Check if center is still on current output
-        if (_currentOutputIndex >= 0)
+        // Check if center is still on current output AND duplication is active
+        if (_currentOutputIndex >= 0 && _duplication != null)
         {
             var cur = _outputs[_currentOutputIndex];
             if (cx >= cur.Left && cx < cur.Right && cy >= cur.Top && cy < cur.Bottom)
-                return; // still on same monitor
+                return; // still on same monitor, duplication working
         }
 
         // Find which output contains the center
@@ -141,17 +142,14 @@ public class DxgiCaptureService : IDisposable
             var o = _outputs[i];
             if (cx >= o.Left && cx < o.Right && cy >= o.Top && cy < o.Bottom)
             {
-                if (i != _currentOutputIndex)
-                    SwitchToOutput(i);
+                SwitchToOutput(i);
                 return;
             }
         }
-        // Center not on any output (e.g., between monitors) — keep current
     }
 
     private void SwitchToOutput(int outputIndex)
     {
-        // Release old duplication
         _duplication?.Dispose();
         _duplication = null;
         _lastFrameValid = false;
@@ -159,7 +157,11 @@ public class DxgiCaptureService : IDisposable
         try
         {
             var hr = _adapter!.EnumOutputs((uint)outputIndex, out var output);
-            if (hr.Failure || output == null) return;
+            if (hr.Failure || output == null)
+            {
+                _currentOutputIndex = -1; // Allow retry next frame
+                return;
+            }
 
             using (output)
             {
@@ -168,15 +170,16 @@ public class DxgiCaptureService : IDisposable
                 _outputTop = bounds.Top;
                 _outputW = bounds.Right - bounds.Left;
                 _outputH = bounds.Bottom - bounds.Top;
-                _currentOutputIndex = outputIndex;
 
                 using var output1 = output.QueryInterface<IDXGIOutput1>();
                 _duplication = output1.DuplicateOutput(_device!);
+                _currentOutputIndex = outputIndex; // Only update on success
             }
         }
         catch
         {
             _duplication = null;
+            _currentOutputIndex = -1; // Allow retry next frame
         }
     }
 
@@ -209,7 +212,8 @@ public class DxgiCaptureService : IDisposable
             if (localY + h > _outputH) h = _outputH - localY;
             if (w <= 0 || h <= 0) return false;
 
-            var hr = _duplication.AcquireNextFrame(0, out _, out var resource);
+            uint acquireTimeout = _lastFrameValid ? 0u : 16u;
+            var hr = _duplication.AcquireNextFrame(acquireTimeout, out _, out var resource);
             if (hr.Failure || resource == null) return _lastFrameValid;
 
             try
