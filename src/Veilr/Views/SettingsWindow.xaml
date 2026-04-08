@@ -74,16 +74,18 @@
                         <TextBlock x:Name="LblToleranceDesc" FontSize="11" Foreground="Gray" Margin="0,0,0,8"/>
                         <Grid Margin="0,0,0,4">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="40"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="LblStrict" VerticalAlignment="Center" FontSize="11" Foreground="Gray"/>
+                            <TextBlock x:Name="LblStrict" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="Gray" Margin="0,0,8,0"/>
                             <Slider Grid.Column="1" Minimum="0" Maximum="100"
                                     Value="{Binding Tolerance}" VerticalAlignment="Center"
                                     TickFrequency="5" IsSnapToTickEnabled="True"/>
-                            <TextBlock x:Name="LblFlexible" VerticalAlignment="Center"
-                                       HorizontalAlignment="Right" FontSize="11" Foreground="Gray"/>
+                            <TextBlock x:Name="LblFlexible" Grid.Column="2" VerticalAlignment="Center"
+                                       HorizontalAlignment="Right" FontSize="11"
+                                       Foreground="Gray" Margin="8,0,0,0"/>
                         </Grid>
                         <TextBlock HorizontalAlignment="Center">
                             <TextBlock.Text>

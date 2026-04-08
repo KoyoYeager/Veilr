@@ -141,10 +141,10 @@ public class GpuProcessingService : IDisposable
         EnsureTextures(w, h);
         CopySrcToGpu(srcCapture, w, h);
 
-        // Update params
-        var p = new float[64]; // 256 bytes / 4
-        p[0] = sheetRgb[0] / 255f; p[1] = sheetRgb[1] / 255f; p[2] = sheetRgb[2] / 255f;
-        p[4] = w; p[5] = h; // dims at offset 16 bytes
+        // HLSL layout: float4 sheetColor(0-15), int2 dims(16-23)
+        var p = new float[64];
+        p[0] = sheetRgb[0] / 255f; p[1] = sheetRgb[1] / 255f; p[2] = sheetRgb[2] / 255f; p[3] = 0;
+        p[4] = I(w); p[5] = I(h);
         UpdateParams(p);
 
         // Dispatch
@@ -177,14 +177,16 @@ public class GpuProcessingService : IDisposable
         double hueTol = similarity * 0.5;
 
         // Pass 1: Alpha
+        // HLSL layout: float3 targetLab(0-11), float targetChroma(12-15),
+        //   float targetAngle(16), float similarity(20), float smoothness(24), float outerRadius(28),
+        //   float hueToleranceDeg(32), int2 dims(36-43)
         var p = new float[64];
         p[0] = (float)tL; p[1] = (float)tA; p[2] = (float)tB;
-        p[3] = (float)targetChroma; p[4] = (float)targetAngle;
-        p[5] = (float)similarity; p[6] = (float)smoothness;
-        p[7] = (float)outerRadius; p[8] = (float)hueTol;
-        // dims at p[12], p[13] (offset 48 bytes → align to 16-byte boundary)
-        p[12] = BitConverter.Int32BitsToSingle(w);
-        p[13] = BitConverter.Int32BitsToSingle(h);
+        p[3] = (float)targetChroma;
+        p[4] = (float)targetAngle; p[5] = (float)similarity;
+        p[6] = (float)smoothness; p[7] = (float)outerRadius;
+        p[8] = (float)hueTol;
+        p[9] = I(w); p[10] = I(h);
         UpdateParams(p);
 
         _context.CSSetShader(_alphaChromaKeyCS);
@@ -202,10 +204,13 @@ public class GpuProcessingService : IDisposable
         RunBlend(w, h);
 
         // Pass 4: Despill
+        // HLSL layout: float3 targetNormRGB(0-11), int2 dims(12-19)
+        // BUT float3 + int2: int2 won't cross 16-byte boundary at offset 12+8=20, within row 0-15? No!
+        // float3 takes 12 bytes (offset 0-11). Next is int2 (8 bytes) at offset 12, but 12+8=20 crosses
+        // the 16-byte boundary. So HLSL packs int2 at offset 16.
         var dp = new float[64];
         dp[0] = target.Rgb[0] / 255f; dp[1] = target.Rgb[1] / 255f; dp[2] = target.Rgb[2] / 255f;
-        dp[4] = BitConverter.Int32BitsToSingle(w);
-        dp[5] = BitConverter.Int32BitsToSingle(h);
+        dp[4] = I(w); dp[5] = I(h);
         UpdateParams(dp);
 
         _context.CSSetShader(_despillCS);
@@ -240,8 +245,8 @@ public class GpuProcessingService : IDisposable
         p[2] = (float)similarity; p[3] = (float)smoothness;
         p[4] = (float)outerRadius; p[5] = (float)(similarity * 0.5);
         p[6] = (float)targetAngle; p[7] = (float)targetChroma;
-        p[8] = BitConverter.Int32BitsToSingle(w);
-        p[9] = BitConverter.Int32BitsToSingle(h);
+        p[8] = I(w);
+        p[9] = I(h);
         UpdateParams(p);
 
         _context.CSSetShader(_alphaYCbCrCS);
@@ -338,8 +343,8 @@ public class GpuProcessingService : IDisposable
     {
         // Init
         var ip = new float[64];
-        ip[0] = BitConverter.Int32BitsToSingle(w);
-        ip[1] = BitConverter.Int32BitsToSingle(h);
+        ip[0] = I(w);
+        ip[1] = I(h);
         UpdateParams(ip);
 
         _context!.CSSetShader(_jfaInitCS);
@@ -357,9 +362,9 @@ public class GpuProcessingService : IDisposable
         for (int step = maxDim / 2; step >= 1; step /= 2)
         {
             var sp = new float[64];
-            sp[0] = BitConverter.Int32BitsToSingle(step);
-            sp[1] = BitConverter.Int32BitsToSingle(w);
-            sp[2] = BitConverter.Int32BitsToSingle(h);
+            sp[0] = I(step);
+            sp[1] = I(w);
+            sp[2] = I(h);
             UpdateParams(sp);
 
             _context.CSSetShader(_jfaStepCS);
@@ -378,8 +383,8 @@ public class GpuProcessingService : IDisposable
     private void RunBlend(int w, int h)
     {
         var bp = new float[64];
-        bp[0] = BitConverter.Int32BitsToSingle(w);
-        bp[1] = BitConverter.Int32BitsToSingle(h);
+        bp[0] = I(w);
+        bp[1] = I(h);
         UpdateParams(bp);
 
         _context!.CSSetShader(_blendCS);
@@ -398,11 +403,14 @@ public class GpuProcessingService : IDisposable
         var p = new float[64];
         p[0] = 0; p[1] = (float)tA; p[2] = (float)tB; // targetLab (L unused)
         p[3] = (float)targetChroma; p[4] = (float)targetAngle; p[5] = (float)maxDist;
-        p[6] = BitConverter.Int32BitsToSingle(w);
-        p[7] = BitConverter.Int32BitsToSingle(h);
-        p[8] = BitConverter.Int32BitsToSingle(dilationPass);
+        p[6] = I(w);
+        p[7] = I(h);
+        p[8] = I(dilationPass);
         UpdateParams(p);
     }
+
+    /// <summary>Pack int as float bits for HLSL int constant buffer.</summary>
+    private static float I(int v) => I(v);
 
     private void UpdateParams(float[] data)
     {
