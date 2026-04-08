@@ -86,12 +86,9 @@ public class SheetViewModel : INotifyPropertyChanged
             return new SolidColorBrush(Color.FromRgb((byte)rgb[0], (byte)rgb[1], (byte)rgb[2]));
         }
     }
-    public SolidColorBrush BarBackground => _isEraseMode
-        ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255))
-        : new SolidColorBrush(System.Windows.Media.Colors.Transparent);
-    public SolidColorBrush BarForeground => _isEraseMode
-        ? new SolidColorBrush(System.Windows.Media.Colors.Black)
-        : TextForeground;
+    public SolidColorBrush BarBackground =>
+        new SolidColorBrush(System.Windows.Media.Colors.Transparent);
+    public SolidColorBrush BarForeground => TextForeground;
 
     public BitmapSource? ProcessedImageSource
     {
