@@ -212,13 +212,26 @@ public partial class SheetWindow : Window
                     {
                         _back.EnsureCapacity(w, h, stride);
                         _gpuService.EnsureTexturesPublic(w, h);
-                        _dxgiCapture.TryCaptureToGpuTexture(x, y, w, h, _gpuService.GetSrcTexture()!);
+                        bool gpuCaptured = _dxgiCapture.TryCaptureToGpuTexture(
+                            x, y, w, h, _gpuService.GetSrcTexture()!);
                         t1 = _profSw.ElapsedTicks;
                         t2 = t1;
-                        _gpuService.ProcessMultiplyBlend(
-                            _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
-                        _gpuService.ReadResultToCpu(_back.Dst, w, h);
-                        t3 = _profSw.ElapsedTicks;
+
+                        if (gpuCaptured)
+                        {
+                            _gpuService.ProcessMultiplyBlend(
+                                _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
+                            _gpuService.ReadResultToCpu(_back.Dst, w, h);
+                            t3 = _profSw.ElapsedTicks;
+                        }
+                        else
+                        {
+                            // DXGI capture failed (monitor switch etc.) → CPU fallback this frame
+                            _dxgiCapture.CaptureIntoBuffer(_back, x, y);
+                            t1 = _profSw.ElapsedTicks; t2 = t1;
+                            _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+                            t3 = _profSw.ElapsedTicks;
+                        }
                     }
                     catch (Exception gpuEx)
                     {
