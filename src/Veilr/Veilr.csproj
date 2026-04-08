@@ -37,4 +37,8 @@
     <EmbeddedResource Include="Shaders\Source\*.hlsl" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veilr.Tests" />
+  </ItemGroup>
+
 </Project>
