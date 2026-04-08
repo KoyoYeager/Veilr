@@ -8,7 +8,7 @@
         ShowInTaskbar="False"
         Width="420" Height="240"
         MinWidth="300" MinHeight="100"
-        ResizeMode="CanResizeWithGrip"
+        ResizeMode="CanResize"
         KeyDown="Window_KeyDown">
 
     <Border CornerRadius="8" ClipToBounds="True"

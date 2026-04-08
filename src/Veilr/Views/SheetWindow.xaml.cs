@@ -67,9 +67,46 @@ public partial class SheetWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _hwndCache = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+
+        // Enable resize from all edges/corners (WindowStyle=None doesn't have default resize handles)
+        var source = System.Windows.Interop.HwndSource.FromHwnd(_hwndCache);
+        source?.AddHook(WndProc);
+
         EnsureExcludeFromCapture();
         RequestCapture();
         StartCaptureThreadIfEnabled();
+    }
+
+    private const int WM_NCHITTEST = 0x0084;
+    private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13,
+        HTTOPRIGHT = 14, HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
+    private const int RESIZE_BORDER = 6;
+
+    private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
+    {
+        if (msg == WM_NCHITTEST)
+        {
+            int x = (short)(lParam.ToInt64() & 0xFFFF);
+            int y = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+
+            GetWindowRect(_hwndCache, out RECT wr);
+            int left = wr.Left, top = wr.Top, right = wr.Right, bottom = wr.Bottom;
+
+            bool l = x >= left && x < left + RESIZE_BORDER;
+            bool r = x > right - RESIZE_BORDER && x <= right;
+            bool t = y >= top && y < top + RESIZE_BORDER;
+            bool b = y > bottom - RESIZE_BORDER && y <= bottom;
+
+            if (t && l) { handled = true; return HTTOPLEFT; }
+            if (t && r) { handled = true; return HTTOPRIGHT; }
+            if (b && l) { handled = true; return HTBOTTOMLEFT; }
+            if (b && r) { handled = true; return HTBOTTOMRIGHT; }
+            if (l) { handled = true; return HTLEFT; }
+            if (r) { handled = true; return HTRIGHT; }
+            if (t) { handled = true; return HTTOP; }
+            if (b) { handled = true; return HTBOTTOM; }
+        }
+        return 0;
     }
 
     // ── CompositionTarget.Rendering: UI update (memcpy only, ~0.3ms) ──
