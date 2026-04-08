@@ -204,41 +204,55 @@ public partial class SheetWindow : Window
 
                 if (useGpu)
                 {
-                    // GPU path: capture stays on GPU, process on GPU, single read-back
-                    _back.EnsureCapacity(w, h, stride);
-                    _gpuService.EnsureTexturesPublic(w, h);
-
-                    // Capture directly to GPU texture (zero CPU copy)
-                    _dxgiCapture.TryCaptureToGpuTexture(x, y, w, h, _gpuService.GetSrcTexture()!);
-                    t1 = _profSw.ElapsedTicks;
-
-                    t2 = t1;
-                    if (isErase)
+                    try
                     {
-                        switch (settings.TargetColor.EraseAlgorithm)
+                        _back.EnsureCapacity(w, h, stride);
+                        _gpuService.EnsureTexturesPublic(w, h);
+                        _dxgiCapture.TryCaptureToGpuTexture(x, y, w, h, _gpuService.GetSrcTexture()!);
+                        t1 = _profSw.ElapsedTicks;
+                        t2 = t1;
+
+                        if (isErase)
                         {
-                            case "labmask":
-                                _gpuService.ProcessEraseLabMask(
-                                    _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
-                                break;
-                            case "ycbcr":
-                                _gpuService.ProcessEraseYCbCr(
-                                    _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
-                                break;
-                            default:
-                                _gpuService.ProcessEraseChromaKey(
-                                    _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
-                                break;
+                            switch (settings.TargetColor.EraseAlgorithm)
+                            {
+                                case "labmask":
+                                    _gpuService.ProcessEraseLabMask(
+                                        _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                    break;
+                                case "ycbcr":
+                                    _gpuService.ProcessEraseYCbCr(
+                                        _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                    break;
+                                default:
+                                    _gpuService.ProcessEraseChromaKey(
+                                        _gpuService.GetSrcTexture()!, settings.TargetColor, w, h);
+                                    break;
+                            }
                         }
+                        else
+                        {
+                            _gpuService.ProcessMultiplyBlend(
+                                _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
+                        }
+                        _gpuService.ReadResultToCpu(_back.Dst, w, h);
+                        t3 = _profSw.ElapsedTicks;
                     }
-                    else
+                    catch (Exception gpuEx)
                     {
-                        _gpuService.ProcessMultiplyBlend(
-                            _gpuService.GetSrcTexture()!, settings.OverlayColor.Rgb, w, h);
+                        // GPU failed — disable and fall back to CPU permanently
+                        _gpuAvailable = false;
+                        useGpu = false;
+                        _profLog.Add($"GPU ERROR (auto-fallback to CPU): {gpuEx.Message}");
+                        // Run CPU path for this frame
+                        _dxgiCapture.CaptureIntoBuffer(_back, x, y);
+                        t1 = _profSw.ElapsedTicks; t2 = t1;
+                        if (isErase)
+                            _detectorService.EraseColorInto(_back, settings.TargetColor);
+                        else
+                            _detectorService.MultiplyBlendInto(_back, settings.OverlayColor.Rgb);
+                        t3 = _profSw.ElapsedTicks;
                     }
-                    // Read result back to CPU
-                    _gpuService.ReadResultToCpu(_back.Dst, w, h);
-                    t3 = _profSw.ElapsedTicks;
                 }
                 else
                 {
