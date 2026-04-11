@@ -42,6 +42,12 @@ public partial class SettingsWindow : Window
         LblStrict.Text = Loc.Strict;
         LblFlexible.Text = Loc.Flexible;
 
+        LblModeSelection.Text = Loc.ModeSelection;
+        LblSheetModeRadio.Text = Loc.SheetMode;
+        LblSheetModeDesc.Text = Loc.SheetModeDesc;
+        LblEraseModeRadio.Text = Loc.EraseMode;
+        LblEraseModeDesc.Text = Loc.EraseModeDesc;
+
         LblEraseSettings.Text = Loc.EraseSettings;
         ChkAutoRefresh.Content = Loc.AutoRefresh;
         LblAutoRefreshDesc.Text = Loc.AutoRefreshDesc;

@@ -17,6 +17,9 @@ public class SettingsViewModel : INotifyPropertyChanged
     // Erase algorithm
     private int _eraseAlgorithmIndex;
 
+    // Mode
+    private bool _isEraseMode;
+
     // Behavior
     private int _updateIntervalMs;
     private bool _autoRefreshEnabled;
@@ -32,6 +35,7 @@ public class SettingsViewModel : INotifyPropertyChanged
     private int _initTolerance, _initInterval, _initAlgorithm;
     private bool _initAutoRefresh;
     private bool _initUseGpu;
+    private bool _initIsEraseMode;
     private int _initBarOpacity;
     private string _initLanguage = "ja", _initHotkey = "ctrl+shift+e";
 
@@ -66,6 +70,8 @@ public class SettingsViewModel : INotifyPropertyChanged
             _ => 0
         };
 
+        _isEraseMode = s.Mode == "erase";
+
         _updateIntervalMs = s.UpdateIntervalMs;
         _autoRefreshEnabled = s.AutoRefreshEnabled;
         _useGpuProcessing = s.UseGpuProcessing;
@@ -80,6 +86,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         _initInterval = _updateIntervalMs;
         _initAutoRefresh = _autoRefreshEnabled;
         _initUseGpu = _useGpuProcessing;
+        _initIsEraseMode = _isEraseMode;
         _initBarOpacity = _barOpacityPercent;
         _initAlgorithm = _eraseAlgorithmIndex;
         _initLanguage = _language; _initHotkey = _hotkeyToggleSheet;
@@ -152,6 +159,18 @@ public class SettingsViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsYCbCr));
     }
 
+    // --- Mode ---
+    public bool IsSheetMode
+    {
+        get => !_isEraseMode;
+        set { if (value) { _isEraseMode = false; OnPropertyChanged(nameof(IsSheetMode)); OnPropertyChanged(nameof(IsSettingsEraseMode)); } }
+    }
+    public bool IsSettingsEraseMode
+    {
+        get => _isEraseMode;
+        set { if (value) { _isEraseMode = true; OnPropertyChanged(nameof(IsSheetMode)); OnPropertyChanged(nameof(IsSettingsEraseMode)); } }
+    }
+
     // --- Behavior ---
     public bool AutoRefreshEnabled
     {
@@ -190,6 +209,7 @@ public class SettingsViewModel : INotifyPropertyChanged
         || _updateIntervalMs != _initInterval
         || _autoRefreshEnabled != _initAutoRefresh
         || _useGpuProcessing != _initUseGpu
+        || _isEraseMode != _initIsEraseMode
         || _barOpacityPercent != _initBarOpacity
         || _eraseAlgorithmIndex != _initAlgorithm
         || _language != _initLanguage || _hotkeyToggleSheet != _initHotkey;
@@ -223,6 +243,8 @@ public class SettingsViewModel : INotifyPropertyChanged
             2 => "ycbcr",
             _ => "chromakey"
         };
+
+        s.Mode = _isEraseMode ? "erase" : "sheet";
 
         s.UpdateIntervalMs = _updateIntervalMs;
         s.AutoRefreshEnabled = _autoRefreshEnabled;

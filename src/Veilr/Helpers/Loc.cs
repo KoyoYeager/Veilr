@@ -36,16 +36,24 @@ public static class Loc
         : "値が大きいほど、ターゲット色に近い色も消去対象になります";
     public static string Strict => _lang == "en" ? "Strict" : "厳密";
     public static string Flexible => _lang == "en" ? "Flexible" : "柔軟";
-    public static string EraseAlgorithm => _lang == "en" ? "Erase algorithm" : "消去アルゴリズム";
+    public static string EraseAlgorithm => _lang == "en" ? "Erase method" : "消し方";
     public static string ChromaKeyDesc => _lang == "en"
-        ? "Smooth alpha blending at edges. Best for anti-aliased text and gradual color boundaries."
-        : "境界をアルファブレンドで滑らかに処理。アンチエイリアス付きテキストや色の境界が緩やかな場合に最適。";
+        ? "Erases with smooth boundaries. Good for blurred text or faint colors."
+        : "境界をなめらかに消す。文字の輪郭がにじんでいたり、色が薄い部分があるときに向いている";
     public static string LabMaskDesc => _lang == "en"
-        ? "Sharp binary removal. Best for solid color blocks, bold text, and cases where chroma key over-blends."
-        : "くっきり二値消去。ベタ塗り、太文字、クロマキーがぼやける場合に最適。";
+        ? "Sharp removal. Good for text and shapes with clear color boundaries."
+        : "くっきり消す。文字と背景がはっきり分かれている場面で使いやすい";
     public static string YCbCrDesc => _lang == "en"
-        ? "Broadcast industry standard. Luminance-independent keying on CbCr plane. Fast and robust."
-        : "放送業界標準。輝度に依存しないCbCr平面でのキーイング。高速で堅牢。";
+        ? "Uses TV broadcast color math. Good for video content."
+        : "テレビ放送と同じ色の扱い方で判定する。動画の色を消したいときに向いている";
+
+    public static string ModeSelection => _lang == "en" ? "Mode" : "モード切替";
+    public static string SheetModeDesc => _lang == "en"
+        ? "Overlay a colored filter to hide same-color text (like a physical red sheet)"
+        : "カラーフィルターを重ねて同色の文字を隠す（実物の赤シートと同じ）";
+    public static string EraseModeDesc => _lang == "en"
+        ? "Detect and erase the target color by filling with surrounding background"
+        : "ターゲット色を検出し、周囲の背景色で塗りつぶして消去する";
 
     public static string EraseSettings => _lang == "en" ? "Erase mode settings" : "消去モード設定";
     public static string AutoRefresh => _lang == "en" ? "Auto refresh" : "自動更新";

@@ -1,8 +1,10 @@
 using System.Windows;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
+using WpfRadioButton = System.Windows.Controls.RadioButton;
 using WpfTextBlock = System.Windows.Controls.TextBlock;
 using WpfTabItem = System.Windows.Controls.TabItem;
 using WpfStackPanel = System.Windows.Controls.StackPanel;
+using WpfScrollViewer = System.Windows.Controls.ScrollViewer;
 using Veilr.Helpers;
 using Veilr.Services;
 using Veilr.Views;
@@ -58,11 +60,22 @@ public class SettingsUiTests
                 var vmCheck = win.DataContext as Veilr.ViewModels.SettingsViewModel;
                 Assert.False(vmCheck!.UseGpuProcessing, "GPU default should be false in ViewModel");
 
-                // Verify Tab2 has the expected children
-                var sp = tab2.Content as WpfStackPanel;
+                // Verify Tab2 has the expected children (wrapped in ScrollViewer)
+                var sv = tab2.Content as WpfScrollViewer;
+                Assert.NotNull(sv);
+                var sp = sv!.Content as WpfStackPanel;
                 Assert.NotNull(sp);
-                Assert.True(sp!.Children.Count >= 7,
-                    $"Tab2 should have ≥7 children, got {sp.Children.Count}");
+                Assert.True(sp!.Children.Count >= 10,
+                    $"Tab2 should have ≥10 children, got {sp.Children.Count}");
+
+                // Verify mode selection controls exist
+                var lblMode = (WpfTextBlock?)win.FindName("LblModeSelection");
+                Assert.NotNull(lblMode);
+                Assert.Equal("モード切替", lblMode!.Text);
+
+                var lblSheetDesc = (WpfTextBlock?)win.FindName("LblSheetModeDesc");
+                Assert.NotNull(lblSheetDesc);
+                Assert.Contains("カラーフィルター", lblSheetDesc!.Text);
 
                 // Verify fps display property
                 var vm = win.DataContext as Veilr.ViewModels.SettingsViewModel;
@@ -141,6 +154,42 @@ public class SettingsUiTests
 
         vm.UseGpuProcessing = true;
         Assert.True(vm.HasChanges);
+    }
+
+    [Fact]
+    public void SettingsViewModel_Mode_DefaultIsSheet()
+    {
+        var ss = new SettingsService();
+        var vm = new Veilr.ViewModels.SettingsViewModel(ss);
+
+        Assert.True(vm.IsSheetMode);
+        Assert.False(vm.IsSettingsEraseMode);
+    }
+
+    [Fact]
+    public void SettingsViewModel_Mode_ToggleDetectsChange()
+    {
+        var ss = new SettingsService();
+        var vm = new Veilr.ViewModels.SettingsViewModel(ss);
+
+        Assert.False(vm.HasChanges);
+
+        vm.IsSettingsEraseMode = true;
+        Assert.True(vm.HasChanges);
+        Assert.True(vm.IsSettingsEraseMode);
+        Assert.False(vm.IsSheetMode);
+    }
+
+    [Fact]
+    public void SettingsViewModel_Mode_SwitchBackNoChange()
+    {
+        var ss = new SettingsService();
+        var vm = new Veilr.ViewModels.SettingsViewModel(ss);
+
+        vm.IsSettingsEraseMode = true;
+        vm.IsSheetMode = true; // switch back
+        Assert.False(vm.HasChanges);
+        Assert.True(vm.IsSheetMode);
     }
 
     [Fact]

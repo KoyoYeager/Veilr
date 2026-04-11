@@ -1,7 +1,7 @@
 <Window x:Class="Veilr.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="520" Height="560"
+        Width="580" Height="640"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}">
@@ -98,7 +98,25 @@
 
             <!-- Tab 2: Behavior -->
             <TabItem x:Name="Tab2">
-                <StackPanel Margin="12">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="12">
+                <StackPanel>
+                    <!-- Mode selection -->
+                    <TextBlock x:Name="LblModeSelection" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8"/>
+                    <RadioButton IsChecked="{Binding IsSheetMode}" Margin="0,0,0,2">
+                        <StackPanel>
+                            <TextBlock x:Name="LblSheetModeRadio" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="LblSheetModeDesc" FontSize="11" Foreground="Gray"
+                                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton IsChecked="{Binding IsSettingsEraseMode}" Margin="0,8,0,16">
+                        <StackPanel>
+                            <TextBlock x:Name="LblEraseModeRadio" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="LblEraseModeDesc" FontSize="11" Foreground="Gray"
+                                       TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </RadioButton>
+
                     <TextBlock x:Name="LblEraseSettings" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,12"/>
 
                     <!-- Auto-refresh toggle -->
@@ -144,6 +162,7 @@
                     </Grid>
                     <TextBlock x:Name="LblBarOpacityDesc" FontSize="11" Foreground="Gray" Margin="0,0,0,0"/>
                 </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <!-- Tab 3: Hotkey -->
