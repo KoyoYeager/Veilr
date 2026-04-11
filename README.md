@@ -40,6 +40,11 @@
 
 [Releases](https://github.com/KoyoYeager/Veilr/releases) ページから `Veilr.exe` をダウンロードして実行。
 
+> **SmartScreenの警告が出る場合**
+> 初回起動時に「WindowsによってPCが保護されました」と表示されることがあります。
+> コード署名のない個人開発のexeで表示される標準的な警告です。
+> 「詳細情報」→「実行」で起動できます。
+
 ## 使い方
 
 ### 基本操作
